@@ -47,4 +47,8 @@ xcuserdata/
 
 # Crash / IDE metadata
 hs_err_pid*
+
+#backup en patch files negeren
 *.bak-*
+*.orig
+*.rej
