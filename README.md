@@ -27,7 +27,7 @@ Pairing via QR/koppelcode, R/RW grants, self-revoke van een behandelaar, access-
 - Kotlin 2.4.20
 - Compose Multiplatform 1.11.1
 - Android Gradle Plugin 9.1.0
-- Gradle 9.7.1
+- Gradle 9.4.1
 - Android compile SDK 36
 - Android target SDK 36
 - Ktor 3.5.2
