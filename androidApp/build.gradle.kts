@@ -30,6 +30,6 @@ android {
 }
 
 dependencies {
-    implementation(project(":shared"))
+    implementation(dependencies.project(":shared"))
     implementation(libs.androidx.activity.compose)
 }
