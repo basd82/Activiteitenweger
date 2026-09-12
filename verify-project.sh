@@ -16,11 +16,10 @@ case "$(uname -s)-$(uname -m)" in
     ./gradlew --no-daemon :shared:linkDebugFrameworkIosSimulatorArm64
     ;;
   Darwin-x86_64)
-    echo "== iOS Simulator x64 framework =="
-    ./gradlew --no-daemon :shared:linkDebugFrameworkIosX64
+    echo "iOS compilecheck overgeslagen: Compose Multiplatform 1.12.0 gebruikt geen iosX64-target meer."
     ;;
   *)
-    echo "iOS compilecheck overgeslagen: hiervoor is macOS/Xcode nodig."
+    echo "iOS compilecheck overgeslagen: hiervoor is macOS/Xcode op Apple Silicon nodig."
     ;;
 esac
 
