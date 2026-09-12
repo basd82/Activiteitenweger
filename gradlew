@@ -6,4 +6,4 @@ if [ ! -f "$JAR" ]; then
   echo "gradle-wrapper.jar ontbreekt. Voer eerst uit: ./bootstrap-gradle-wrapper.sh" >&2
   exit 1
 fi
-exec java ${JAVA_OPTS:-} -Dorg.gradle.appname=gradlew -classpath "$JAR" org.gradle.wrapper.GradleWrapperMain "$@"
+exec java ${JAVA_OPTS:-} --enable-native-access=ALL-UNNAMED -Dorg.gradle.appname=gradlew -classpath "$JAR" org.gradle.wrapper.GradleWrapperMain "$@"
