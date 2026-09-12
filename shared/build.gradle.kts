@@ -12,7 +12,11 @@ plugins {
 kotlin {
     android {
         namespace = "net.dikkenberg.activiteitenweger.shared"
-        compileSdk = 37
+        compileSdk {
+            version = release(36) {
+                minorApiLevel = 1
+            }
+        }
         minSdk = 26
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
