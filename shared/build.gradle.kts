@@ -29,6 +29,7 @@ kotlin {
     targets.withType<org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget>().configureEach {
         binaries.framework {
             baseName = "Shared"
+            binaryOption("bundleId", "net.dikkenberg.activiteitenweger.shared")
             isStatic = true
         }
     }
