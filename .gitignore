@@ -1,35 +1,50 @@
-.gradle/
+# macOS
+.DS_Store
+
+# IntelliJ / Android Studio
 .idea/
 *.iml
-local.properties
-.DS_Store
-build/
-**/build/
-/captures/
-.externalNativeBuild/
-.cxx/
-iosApp/DerivedData/
+out/
 
-# macOS
-# IntelliJ / Android Studio
-# Gradle
-# Android lokaal
-# Kotlin
+# Gradle / Kotlin
+.gradle/
+**/build/
+build/
 .kotlin/
-# Xcode
+
+# Android lokale SDK-config
+local.properties
+
+# Android signing / secrets
+*.jks
+*.keystore
+keystore.properties
+secrets.properties
+
+# Environment / secrets
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Xcode / iOS
 DerivedData/
 *.xcuserstate
 xcuserdata/
-# Secrets / keys
-*.jks
-*.keystore
-*.p12
-*.pfx
-*.key
-*.pem
-.env
-.env.*
-secrets.properties
-# Tijdelijke bestanden
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Kotlin/Native
+.konan/
+
+# Logs / temp
 *.log
 *.tmp
+*.swp
+*~
+
+# Crash / IDE metadata
+hs_err_pid*
+*.bak-*
