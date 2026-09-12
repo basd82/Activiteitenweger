@@ -10,7 +10,7 @@ actual fun createSecureStore(): SecureStore {
         override fun putString(key: String, value: String) {
             check(vault.set(key = key, stringValue = value)) { "Secure storage write failed" }
         }
-        override fun remove(key: String) { vault.removeObject(forKey = key) }
+        override fun remove(key: String) { vault.deleteObject(forKey = key) }
         override fun clear() { vault.clear() }
     }
 }
