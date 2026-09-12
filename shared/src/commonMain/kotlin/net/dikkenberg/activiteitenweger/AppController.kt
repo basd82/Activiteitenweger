@@ -1,0 +1,160 @@
+package net.dikkenberg.activiteitenweger
+
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import net.dikkenberg.activiteitenweger.crypto.CryptoService
+import net.dikkenberg.activiteitenweger.data.VaultRepository
+import net.dikkenberg.activiteitenweger.model.AccessMode
+import net.dikkenberg.activiteitenweger.model.ActivityCategory
+import net.dikkenberg.activiteitenweger.model.ActivityItem
+import net.dikkenberg.activiteitenweger.model.VaultSession
+import net.dikkenberg.activiteitenweger.network.ApiClient
+import net.dikkenberg.activiteitenweger.storage.SessionStore
+import net.dikkenberg.activiteitenweger.storage.createSecureStore
+
+
+data class AppUiState(
+    val initialized: Boolean = false,
+    val busy: Boolean = false,
+    val sessions: List<VaultSession> = emptyList(),
+    val selectedVaultId: String? = null,
+    val activities: List<ActivityItem> = emptyList(),
+    val health: String = "Onbekend",
+    val message: String? = null,
+    val error: String? = null,
+) {
+    val selectedSession: VaultSession?
+        get() = sessions.firstOrNull { it.vaultId == selectedVaultId }
+
+    val activeActivity: ActivityItem?
+        get() = activities.firstOrNull { it.payload.endedAt == null }
+
+    val canWrite: Boolean
+        get() = selectedSession?.access == AccessMode.RW
+}
+
+class AppController(
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+) {
+    private val crypto = CryptoService()
+    private val api = ApiClient(crypto = crypto)
+    private val sessionStore = SessionStore(createSecureStore(), api.json)
+    private val repository = VaultRepository(api, crypto, sessionStore)
+
+    private val _state = MutableStateFlow(AppUiState())
+    val state: StateFlow<AppUiState> = _state.asStateFlow()
+
+    fun initialize() {
+        if (_state.value.initialized) return
+        scope.launch {
+            val sessions = repository.sessions()
+            val selected = sessions.firstOrNull()?.vaultId
+            _state.value = _state.value.copy(
+                initialized = true,
+                sessions = sessions,
+                selectedVaultId = selected,
+            )
+            checkHealth()
+            if (selected != null) syncCurrent()
+        }
+    }
+
+    fun createVault(label: String) = launchBusy {
+        val session = repository.createVault(label)
+        _state.value = _state.value.copy(
+            sessions = repository.sessions(),
+            selectedVaultId = session.vaultId,
+            activities = emptyList(),
+            message = "Activiteitenweger aangemaakt",
+        )
+    }
+
+    fun selectVault(vaultId: String) {
+        _state.value = _state.value.copy(selectedVaultId = vaultId, activities = emptyList())
+        syncCurrent()
+    }
+
+    fun syncCurrent() = launchBusy {
+        val session = _state.value.selectedSession ?: return@launchBusy
+        val (updatedSession, activities) = repository.loadAllActivities(session)
+        val sessions = repository.sessions().map {
+            if (it.vaultId == updatedSession.vaultId) updatedSession else it
+        }
+        _state.value = _state.value.copy(
+            sessions = sessions,
+            activities = activities,
+            message = "Gesynchroniseerd",
+        )
+    }
+
+    fun startActivity(description: String, category: ActivityCategory) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(_state.value.activeActivity == null) { "Er loopt al een activiteit" }
+        val created = repository.startActivity(session, description, category)
+        _state.value = _state.value.copy(
+            activities = listOf(created) + _state.value.activities,
+            message = "Activiteit gestart",
+        )
+    }
+
+    fun stopActiveActivity() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val active = requireNotNull(_state.value.activeActivity)
+        val updated = repository.stopActivity(session, active)
+        _state.value = _state.value.copy(
+            activities = _state.value.activities.map {
+                if (it.recordId == updated.recordId) updated else it
+            },
+            message = "Activiteit afgerond",
+        )
+    }
+
+    fun deleteActivity(item: ActivityItem) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        repository.deleteActivity(session, item)
+        _state.value = _state.value.copy(
+            activities = _state.value.activities.filterNot { it.recordId == item.recordId },
+            message = "Activiteit verwijderd",
+        )
+    }
+
+    fun deleteCurrentVault() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        repository.deleteVault(session)
+        val sessions = repository.sessions()
+        val selected = sessions.firstOrNull()?.vaultId
+        _state.value = _state.value.copy(
+            sessions = sessions,
+            selectedVaultId = selected,
+            activities = emptyList(),
+            message = "Alle servergegevens van deze Activiteitenweger zijn verwijderd",
+        )
+        if (selected != null) syncCurrent()
+    }
+
+    fun checkHealth() {
+        scope.launch {
+            runCatching { api.health() }
+                .onSuccess { _state.value = _state.value.copy(health = "Online") }
+                .onFailure { _state.value = _state.value.copy(health = "Niet bereikbaar") }
+        }
+    }
+
+    fun clearNotice() {
+        _state.value = _state.value.copy(message = null, error = null)
+    }
+
+    private fun launchBusy(block: suspend () -> Unit) {
+        scope.launch {
+            _state.value = _state.value.copy(busy = true, error = null)
+            runCatching { block() }
+                .onFailure { e -> _state.value = _state.value.copy(error = e.message ?: e::class.simpleName) }
+            _state.value = _state.value.copy(busy = false)
+        }
+    }
+}

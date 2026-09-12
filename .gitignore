@@ -1,0 +1,35 @@
+.gradle/
+.idea/
+*.iml
+local.properties
+.DS_Store
+build/
+**/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+iosApp/DerivedData/
+
+# macOS
+# IntelliJ / Android Studio
+# Gradle
+# Android lokaal
+# Kotlin
+.kotlin/
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+# Secrets / keys
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
+*.pem
+.env
+.env.*
+secrets.properties
+# Tijdelijke bestanden
+*.log
+*.tmp

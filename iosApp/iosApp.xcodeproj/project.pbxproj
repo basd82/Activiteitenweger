@@ -1,0 +1,135 @@
+// !$*UTF8*$!
+{
+    archiveVersion = 1;
+    classes = {};
+    objectVersion = 54;
+    objects = {
+
+/* Begin PBXBuildFile section */
+        A10000000000000000000001 /* iOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* iOSApp.swift */; };
+        A10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* ContentView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+        A20000000000000000000001 /* iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iOSApp.swift; sourceTree = "<group>"; };
+        A20000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+        A20000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+        A20000000000000000000004 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+        A20000000000000000000005 /* Activiteitenweger.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Activiteitenweger.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+        A30000000000000000000001 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+        A40000000000000000000001 = {isa = PBXGroup; children = (A40000000000000000000002, A40000000000000000000003, A40000000000000000000004); sourceTree = "<group>"; };
+        A40000000000000000000002 /* iosApp */ = {isa = PBXGroup; children = (A20000000000000000000001, A20000000000000000000002, A20000000000000000000003); path = iosApp; sourceTree = "<group>"; };
+        A40000000000000000000003 /* Configuration */ = {isa = PBXGroup; children = (A20000000000000000000004); path = Configuration; sourceTree = "<group>"; };
+        A40000000000000000000004 /* Products */ = {isa = PBXGroup; children = (A20000000000000000000005); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+        A50000000000000000000001 /* iosApp */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = A90000000000000000000002;
+            buildPhases = (A60000000000000000000001, A70000000000000000000001, A30000000000000000000001, A80000000000000000000001);
+            buildRules = ();
+            dependencies = ();
+            name = iosApp;
+            productName = Activiteitenweger;
+            productReference = A20000000000000000000005;
+            productType = "com.apple.product-type.application";
+        };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+        A50000000000000000000002 /* Project object */ = {
+            isa = PBXProject;
+            attributes = { LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; };
+            buildConfigurationList = A90000000000000000000001;
+            compatibilityVersion = "Xcode 15.0";
+            developmentRegion = en;
+            hasScannedForEncodings = 0;
+            knownRegions = (en, Base);
+            mainGroup = A40000000000000000000001;
+            productRefGroup = A40000000000000000000004;
+            projectDirPath = "";
+            projectRoot = "";
+            targets = (A50000000000000000000001);
+        };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+        A80000000000000000000001 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+        A60000000000000000000001 /* Compile Kotlin Framework */ = {
+            isa = PBXShellScriptBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            inputFileListPaths = ();
+            inputPaths = ();
+            name = "Compile Kotlin Framework";
+            outputFileListPaths = ();
+            outputPaths = ();
+            runOnlyForDeploymentPostprocessing = 0;
+            shellPath = /bin/sh;
+            shellScript = "if [ \"YES\" = \"$OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED\" ]; then\n  echo \"Skipping Gradle build\"\n  exit 0\nfi\ncd \"$SRCROOT/..\"\n./gradlew :shared:embedAndSignAppleFrameworkForXcode\n";
+        };
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+        A70000000000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000001, A10000000000000000000002); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+        B00000000000000000000001 /* Debug project */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; SDKROOT = iphoneos; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG; SWIFT_OPTIMIZATION_LEVEL = "-Onone";}; name = Debug; };
+        B00000000000000000000002 /* Release project */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O";}; name = Release; };
+        B00000000000000000000003 /* Debug target */ = {
+            isa = XCBuildConfiguration;
+            baseConfigurationReference = A20000000000000000000004;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = "$(TEAM_ID)";
+                ENABLE_PREVIEWS = YES;
+                FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
+                INFOPLIST_FILE = iosApp/Info.plist;
+                IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+                OTHER_LDFLAGS = ("$(inherited)", "-framework", Shared);
+                PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_ID)";
+                PRODUCT_NAME = "$(APP_NAME)";
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = "1,2";
+            };
+            name = Debug;
+        };
+        B00000000000000000000004 /* Release target */ = {
+            isa = XCBuildConfiguration;
+            baseConfigurationReference = A20000000000000000000004;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                DEVELOPMENT_TEAM = "$(TEAM_ID)";
+                FRAMEWORK_SEARCH_PATHS = "$(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)";
+                INFOPLIST_FILE = iosApp/Info.plist;
+                IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
+                OTHER_LDFLAGS = ("$(inherited)", "-framework", Shared);
+                PRODUCT_BUNDLE_IDENTIFIER = "$(BUNDLE_ID)";
+                PRODUCT_NAME = "$(APP_NAME)";
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = "1,2";
+            };
+            name = Release;
+        };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+        A90000000000000000000001 /* Project configs */ = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000001, B00000000000000000000002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+        A90000000000000000000002 /* Target configs */ = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000003, B00000000000000000000004); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+    };
+    rootObject = A50000000000000000000002;
+}
