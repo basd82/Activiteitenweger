@@ -8,12 +8,12 @@ if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
 fi
 
 echo "== Android debug build =="
-./gradlew --no-daemon :androidApp:assembleDebug
+./gradlew --no-daemon --warning-mode all :androidApp:assembleDebug
 
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64)
     echo "== iOS Simulator ARM64 framework =="
-    ./gradlew --no-daemon :shared:linkDebugFrameworkIosSimulatorArm64
+    ./gradlew --no-daemon --warning-mode all :shared:linkDebugFrameworkIosSimulatorArm64
     ;;
   Darwin-x86_64)
     echo "iOS compilecheck overgeslagen: Compose Multiplatform 1.12.0 gebruikt geen iosX64-target meer."
