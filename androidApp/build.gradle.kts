@@ -5,12 +5,16 @@ plugins {
 
 android {
     namespace = "net.dikkenberg.activiteitenweger"
-    compileSdk = 37
+    compileSdk {
+        version = release(36) {
+            minorApiLevel = 1
+        }
+    }
 
     defaultConfig {
         applicationId = "net.dikkenberg.activiteitenweger"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
     }
