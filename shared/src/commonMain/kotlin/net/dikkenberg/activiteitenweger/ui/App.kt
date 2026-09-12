@@ -271,7 +271,8 @@ private fun HistoryScreen(state: AppUiState) {
     val groups = state.activities
         .filter { it.payload.endedAt != null }
         .groupBy { it.payload.localDate() }
-        .toSortedMap(compareByDescending { it })
+        .entries
+        .sortedByDescending { it.key }
     androidx.compose.foundation.lazy.LazyColumn(
         Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
