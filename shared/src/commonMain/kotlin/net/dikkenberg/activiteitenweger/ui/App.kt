@@ -21,6 +21,7 @@ import net.dikkenberg.activiteitenweger.AppController
 import net.dikkenberg.activiteitenweger.AppUiState
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
+import net.dikkenberg.activiteitenweger.model.ActivityPreset
 import net.dikkenberg.activiteitenweger.platform.appBuildNumber
 import net.dikkenberg.activiteitenweger.platform.appVersionName
 import kotlin.math.abs
@@ -275,6 +276,7 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
     if (showStart) {
         StartActivityDialog(
             categories = state.categories,
+            presets = state.activityPresets,
             onDismiss = { showStart = false },
             onStart = { description, category ->
                 showStart = false
@@ -288,6 +290,7 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
             title = "Activiteit handmatig invoeren",
             initialDescription = "",
             categories = state.categories,
+            presets = state.activityPresets,
             initialCategory = state.categories.firstOrNull { it.id == ActivityCategory.LIGHT.id }
                 ?: state.categories.firstOrNull()
                 ?: ActivityCategory.LIGHT,
@@ -309,6 +312,7 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
             title = "Activiteit wijzigen",
             initialDescription = item.payload.description,
             categories = state.categories,
+            presets = state.activityPresets,
             initialCategory = item.payload.category,
             initialStartDate = formatLocalDate(item.payload.startedAt),
             initialStartTime = formatLocalTime(item.payload.startedAt),
@@ -356,6 +360,7 @@ private fun ActivityCard(
 @Composable
 private fun StartActivityDialog(
     categories: List<ActivityCategory>,
+    presets: List<ActivityPreset>,
     onDismiss: () -> Unit,
     onStart: (String, ActivityCategory) -> Unit,
 ) {
@@ -372,6 +377,17 @@ private fun StartActivityDialog(
         title = { Text("Start activiteit") },
         text = {
             Column {
+                if (presets.isNotEmpty()) {
+                    ActivityPresetDropdown(
+                        presets = presets,
+                        categories = availableCategories,
+                        onSelected = { preset, presetCategory ->
+                            description = preset.label
+                            category = presetCategory
+                        },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
@@ -398,6 +414,7 @@ private fun ActivityEditorDialog(
     title: String,
     initialDescription: String,
     categories: List<ActivityCategory>,
+    presets: List<ActivityPreset>,
     initialCategory: ActivityCategory,
     initialStartDate: String,
     initialStartTime: String,
@@ -425,6 +442,17 @@ private fun ActivityEditorDialog(
         title = { Text(title) },
         text = {
             Column {
+                if (presets.isNotEmpty()) {
+                    ActivityPresetDropdown(
+                        presets = presets,
+                        categories = availableCategories,
+                        onSelected = { preset, presetCategory ->
+                            description = preset.label
+                            category = presetCategory
+                        },
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
@@ -761,6 +789,7 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
             title = "Activiteit wijzigen",
             initialDescription = item.payload.description,
             categories = state.categories,
+            presets = state.activityPresets,
             initialCategory = item.payload.category,
             initialStartDate = formatLocalDate(item.payload.startedAt),
             initialStartTime = formatLocalTime(item.payload.startedAt),
@@ -900,6 +929,9 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var editingCategory by remember { mutableStateOf<ActivityCategory?>(null) }
     var addingCategory by remember { mutableStateOf(false) }
     var deletingCategory by remember { mutableStateOf<ActivityCategory?>(null) }
+    var addingPreset by remember { mutableStateOf(false) }
+    var editingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
+    var deletingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
     val settingsScrollState = rememberScrollState()
     var importYear by remember {
         mutableStateOf(
@@ -983,6 +1015,65 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
                 "Categorieën kunnen niet worden gewijzigd in een alleen-lezen profiel.",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+
+        Spacer(Modifier.height(20.dp))
+        Text("Standaardactiviteiten", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Voeg veelgebruikte activiteiten toe. Bij het starten of handmatig invoeren " +
+                "kun je ze daarna uit een keuzelijst selecteren."
+        )
+        Spacer(Modifier.height(8.dp))
+        if (state.activityPresets.isEmpty()) {
+            Text(
+                "Nog geen standaardactiviteiten ingesteld.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else {
+            state.activityPresets.forEach { preset ->
+                val presetCategory = state.categories.firstOrNull { it.id == preset.categoryId }
+                OutlinedCard(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(preset.label, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                presetCategory?.let {
+                                    "${it.label} · ${signed(it.pointsPer30Minutes)} per 30 min"
+                                } ?: "Categorie niet beschikbaar",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            TextButton(
+                                onClick = { editingPreset = preset },
+                                enabled = state.canWrite && !state.busy,
+                            ) {
+                                Text("Wijzig")
+                            }
+                            TextButton(
+                                onClick = { deletingPreset = preset },
+                                enabled = state.canWrite && !state.busy,
+                            ) {
+                                Text("Verwijder")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { addingPreset = true },
+            enabled = state.canWrite && !state.busy && state.categories.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Standaardactiviteit toevoegen")
         }
 
         Spacer(Modifier.height(20.dp))
@@ -1089,6 +1180,58 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         )
     }
 
+    if (addingPreset) {
+        ActivityPresetEditorDialog(
+            title = "Standaardactiviteit toevoegen",
+            initialPreset = null,
+            categories = state.categories,
+            onDismiss = { addingPreset = false },
+            onSave = { label, categoryId ->
+                addingPreset = false
+                controller.saveActivityPreset(null, label, categoryId)
+            },
+        )
+    }
+
+    editingPreset?.let { preset ->
+        ActivityPresetEditorDialog(
+            title = "Standaardactiviteit wijzigen",
+            initialPreset = preset,
+            categories = state.categories,
+            onDismiss = { editingPreset = null },
+            onSave = { label, categoryId ->
+                editingPreset = null
+                controller.saveActivityPreset(preset.id, label, categoryId)
+            },
+        )
+    }
+
+    deletingPreset?.let { preset ->
+        AlertDialog(
+            onDismissRequest = { deletingPreset = null },
+            title = { Text("Standaardactiviteit verwijderen?") },
+            text = {
+                Text(
+                    "De standaardactiviteit '${preset.label}' wordt uit de keuzelijst verwijderd. " +
+                        "Bestaande activiteiten blijven ongewijzigd."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deletingPreset = null
+                        controller.deleteActivityPreset(preset.id)
+                    }
+                ) {
+                    Text("Verwijderen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingPreset = null }) { Text("Annuleer") }
+            },
+        )
+    }
+
     if (showExcelImport) {
         val parsedYear = importYear.toIntOrNull()
         AlertDialog(
@@ -1138,6 +1281,132 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuleer") } },
         )
     }
+}
+
+@Composable
+private fun ActivityPresetDropdown(
+    presets: List<ActivityPreset>,
+    categories: List<ActivityCategory>,
+    onSelected: (ActivityPreset, ActivityCategory) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Standaardactiviteit kiezen ▼")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            presets.forEach { preset ->
+                val category = categories.firstOrNull { it.id == preset.categoryId }
+                if (category != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(preset.label)
+                                Text(
+                                    "${category.label} · ${signed(category.pointsPer30Minutes)} per 30 min",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                        },
+                        onClick = {
+                            expanded = false
+                            onSelected(preset, category)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActivityPresetEditorDialog(
+    title: String,
+    initialPreset: ActivityPreset?,
+    categories: List<ActivityCategory>,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit,
+) {
+    var label by remember(initialPreset?.id) {
+        mutableStateOf(initialPreset?.label.orEmpty())
+    }
+    var categoryId by remember(initialPreset?.id, categories) {
+        mutableStateOf(
+            initialPreset?.categoryId
+                ?.takeIf { id -> categories.any { it.id == id } }
+                ?: categories.firstOrNull()?.id
+                .orEmpty()
+        )
+    }
+    var expanded by remember { mutableStateOf(false) }
+    val selectedCategory = categories.firstOrNull { it.id == categoryId }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Naam activiteit") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Categorie", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                Box(Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { expanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            selectedCategory?.let {
+                                "${it.label} (${signed(it.pointsPer30Minutes)} per 30 min) ▼"
+                            } ?: "Categorie kiezen ▼"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                    ) {
+                        categories.forEach { category ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "${category.label} (${signed(category.pointsPer30Minutes)} per 30 min)"
+                                    )
+                                },
+                                onClick = {
+                                    categoryId = category.id
+                                    expanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(label, categoryId) },
+                enabled = label.isNotBlank() && selectedCategory != null,
+            ) {
+                Text("Opslaan")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
 }
 
 @Composable
