@@ -45,7 +45,6 @@ data class ProfileSettingsPayload(
     val label: String,
     val categories: List<ActivityCategory> = ActivityCategory.defaults,
     val activityPresets: List<ActivityPreset> = emptyList(),
-    val settingsRevision: Long = 0,
 )
 
 @Serializable
@@ -144,6 +143,7 @@ data class VaultSession(
     val cursor: Long = 0,
     val categories: List<ActivityCategory> = ActivityCategory.defaults,
     val activityPresets: List<ActivityPreset> = emptyList(),
+    val settingsRevision: Long = 0,
 )
 
 @Serializable
