@@ -6,6 +6,9 @@ package net.dikkenberg.activiteitenweger.platform
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.activity.ComponentActivity
+import io.github.vinceglb.filekit.FileKit
+import io.github.vinceglb.filekit.dialogs.init
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 
@@ -13,6 +16,10 @@ private lateinit var applicationContext: Context
 
 fun initAndroidPlatform(context: Context) {
     applicationContext = context.applicationContext
+}
+
+fun initAndroidFileDialogs(activity: ComponentActivity) {
+    FileKit.init(activity)
 }
 
 internal fun requireAndroidContext(): Context {
