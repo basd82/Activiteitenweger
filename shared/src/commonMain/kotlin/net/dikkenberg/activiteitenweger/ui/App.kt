@@ -249,6 +249,7 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
 
     if (showStart) {
         StartActivityDialog(
+            categories = state.categories,
             onDismiss = { showStart = false },
             onStart = { description, category ->
                 showStart = false
@@ -261,7 +262,10 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
         ActivityEditorDialog(
             title = "Activiteit handmatig invoeren",
             initialDescription = "",
-            initialCategory = ActivityCategory.LIGHT,
+            categories = state.categories,
+            initialCategory = state.categories.firstOrNull { it.id == ActivityCategory.LIGHT.id }
+                ?: state.categories.firstOrNull()
+                ?: ActivityCategory.LIGHT,
             initialStartDate = localToday(),
             initialStartTime = formatLocalTime(Clock.System.now().toString()),
             initialEndDate = localToday(),
@@ -279,6 +283,7 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
         ActivityEditorDialog(
             title = "Activiteit wijzigen",
             initialDescription = item.payload.description,
+            categories = state.categories,
             initialCategory = item.payload.category,
             initialStartDate = formatLocalDate(item.payload.startedAt),
             initialStartTime = formatLocalTime(item.payload.startedAt),
@@ -324,9 +329,19 @@ private fun ActivityCard(
 }
 
 @Composable
-private fun StartActivityDialog(onDismiss: () -> Unit, onStart: (String, ActivityCategory) -> Unit) {
+private fun StartActivityDialog(
+    categories: List<ActivityCategory>,
+    onDismiss: () -> Unit,
+    onStart: (String, ActivityCategory) -> Unit,
+) {
+    val availableCategories = categories.ifEmpty { ActivityCategory.defaults }
     var description by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf(ActivityCategory.LIGHT) }
+    var category by remember(availableCategories) {
+        mutableStateOf(
+            availableCategories.firstOrNull { it.id == ActivityCategory.LIGHT.id }
+                ?: availableCategories.first()
+        )
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Start activiteit") },
@@ -339,9 +354,9 @@ private fun StartActivityDialog(onDismiss: () -> Unit, onStart: (String, Activit
                     singleLine = true,
                 )
                 Spacer(Modifier.height(12.dp))
-                ActivityCategory.entries.forEach { option ->
+                availableCategories.forEach { option ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = category == option, onClick = { category = option })
+                        RadioButton(selected = category.id == option.id, onClick = { category = option })
                         Text("${option.label} (${signed(option.pointsPer30Minutes)} per 30 min)")
                     }
                 }
@@ -357,6 +372,7 @@ private fun StartActivityDialog(onDismiss: () -> Unit, onStart: (String, Activit
 private fun ActivityEditorDialog(
     title: String,
     initialDescription: String,
+    categories: List<ActivityCategory>,
     initialCategory: ActivityCategory,
     initialStartDate: String,
     initialStartTime: String,
@@ -366,6 +382,7 @@ private fun ActivityEditorDialog(
     onDismiss: () -> Unit,
     onSave: (String, ActivityCategory, String, String, String, String) -> Unit,
 ) {
+    val availableCategories = (categories + initialCategory).distinctBy { it.id }
     var description by remember { mutableStateOf(initialDescription) }
     var category by remember { mutableStateOf(initialCategory) }
     var startDate by remember { mutableStateOf(initialStartDate) }
@@ -428,9 +445,9 @@ private fun ActivityEditorDialog(
                 }
 
                 Spacer(Modifier.height(12.dp))
-                ActivityCategory.entries.forEach { option ->
+                availableCategories.forEach { option ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = category == option, onClick = { category = option })
+                        RadioButton(selected = category.id == option.id, onClick = { category = option })
                         Text("${option.label} (${signed(option.pointsPer30Minutes)} per 30 min)")
                     }
                 }
@@ -1059,4 +1076,5 @@ private fun formatPoints(value: Double): String {
     return if (abs(rounded - rounded.toInt()) < 0.0001) rounded.toInt().toString() else rounded.toString()
 }
 
-private fun signed(value: Double): String = if (value > 0) "+${value.toInt()}" else value.toInt().toString()
+private fun signed(value: Double): String =
+    if (value > 0) "+" + formatPoints(value) else formatPoints(value)
