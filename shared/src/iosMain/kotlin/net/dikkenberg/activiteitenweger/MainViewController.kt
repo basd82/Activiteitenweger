@@ -6,6 +6,12 @@ package net.dikkenberg.activiteitenweger
 import androidx.compose.ui.window.ComposeUIViewController
 import net.dikkenberg.activiteitenweger.ui.ActiviteitenwegerApp
 
+private val iosAppController = AppController()
+
 fun MainViewController() = ComposeUIViewController {
-    ActiviteitenwegerApp()
+    ActiviteitenwegerApp(iosAppController)
+}
+
+fun setAppActive(active: Boolean) {
+    iosAppController.setAppForeground(active)
 }
