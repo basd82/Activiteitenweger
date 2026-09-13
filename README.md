@@ -19,6 +19,7 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 - ondersteunt handmatig activiteiten invoeren met start- en einddatum/tijd;
 - ondersteunt afgeronde activiteiten wijzigen en verwijderen;
 - ondersteunt profielnamen lokaal wijzigen;
+- importeert en exporteert het Activiteitenweger-dagschema als Excel (.xlsx), inclusief oudere dagbladen zonder jaartal;
 - start- en eindtijd worden automatisch vastgelegd;
 - rekent punten proportioneel uit: Ontspanning -1, Licht +1, Gemiddeld +2, Zwaar +3 per 30 minuten;
 - synchroniseert records en tombstones met de bestaande server-API;
@@ -30,7 +31,7 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 
 Pairing via QR/koppelcode, R/RW grants, self-revoke van een behandelaar, access-events en key rotation zijn in de UI/datamodellen voorbereid maar kunnen nog niet functioneel zijn totdat de server de pairing/device-grant endpoints en de many-to-many `vault_devices` migratie heeft. De app doet hier dus niet alsof het al werkt.
 
-## Versies (12 september 2026)
+## Versies (13 september 2026)
 
 - Kotlin 2.4.20
 - Compose Multiplatform 1.11.1
@@ -44,6 +45,8 @@ Pairing via QR/koppelcode, R/RW grants, self-revoke van een behandelaar, access-
 - kotlinx-datetime 0.8.0
 - cryptography-kotlin 0.6.0
 - KVault 1.12.0
+- Kexcel 0.1.1
+- FileKit 0.14.2
 
 ## Eerste keer openen
 
