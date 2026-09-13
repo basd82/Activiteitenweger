@@ -33,12 +33,12 @@ Werkend op dit checkpoint:
 
 - ✅ persistente versleutelde lokale cache + outbox voor offline registreren (0.2.1);
 - ✅ lokale Start/Stop/Wijzig-acties blokkeren niet op netwerk (0.2.2);
-- pairing-flow voor tweede apparaat/behandelaar;
-- keuze bij koppelen tussen R en RW;
-- QR scanner/generator en handmatige koppelcode;
-- device-/toegangsoverzicht per vault;
-- toegang intrekken;
-- expliciete conflictresolver met keuze tussen lokale en serverversie;
+- ✅ pairing-flow voor tweede apparaat/behandelaar (0.3.0);
+- ✅ keuze bij koppelen tussen R en RW (0.3.0);
+- ✅ QR scanner/generator en handmatige koppelcode (0.3.0);
+- ✅ device-/toegangsoverzicht per vault (0.3.0);
+- ✅ toegang intrekken (0.3.0);
+- ✅ expliciete conflictresolver met keuze tussen lokale en serverversie (0.3.0);
 - OS share sheet (WhatsApp/Telegram/Signal/Mail/etc.);
 - handmatige invoer/correctie van start- en eindtijd;
 - weekgrafieken en dagvergelijking;
