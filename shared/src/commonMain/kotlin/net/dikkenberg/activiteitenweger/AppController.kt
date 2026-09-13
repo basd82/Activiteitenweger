@@ -80,6 +80,7 @@ class AppController(
     private val sessionStore = SessionStore(createSecureStore(), api.json)
     private val repository = VaultRepository(api, crypto, sessionStore)
     private val operationMutex = Mutex()
+    private var appInForeground: Boolean = true
 
     private val _state = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = _state.asStateFlow()
@@ -142,13 +143,25 @@ class AppController(
     }
 
     fun syncCurrentSilently() {
-        if (!_state.value.initialized || _state.value.selectedSession == null) return
+        if (
+            !appInForeground ||
+            !_state.value.initialized ||
+            _state.value.selectedSession == null
+        ) return
         scope.launch {
             runSync(
                 fullRefresh = false,
                 announce = false,
                 showBusy = false,
             )
+        }
+    }
+
+    fun setAppForeground(active: Boolean) {
+        val becameActive = active && !appInForeground
+        appInForeground = active
+        if (becameActive) {
+            syncCurrentSilently()
         }
     }
 
