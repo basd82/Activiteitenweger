@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.1 — 2026-09-13
+
+### Offline synchronisatie
+- Persistente versleutelde lokale recordcache toegevoegd.
+- Durable outbox voor nieuwe, gewijzigde, gestopte en verwijderde activiteiten.
+- Activiteiten kunnen worden geregistreerd terwijl het apparaat offline is.
+- Pending records tonen **Wacht op synchronisatie** in de UI.
+- Exact voorbereide encrypted requests worden bij retry hergebruikt.
+- Een timeout na servercommit kan bij de volgende pull veilig als eigen write worden herkend.
+- Meerdere offline wijzigingen aan hetzelfde record worden samengevoegd.
+- Lokale nieuwe records die vóór de eerste upload worden verwijderd, verdwijnen zonder onnodige server-tombstone.
+- Pending- en conflict-aantallen zijn zichtbaar bij Instellingen.
+- Offline netwerkfouten tonen geen ruwe NSURL/Ktor-exception meer.
+
+### Versie
+- Android: 0.2.1 build 11.
+- iOS: 0.2.1 build 11.
+
+
 ## 0.2.0 — 2026-09-13
 
 ### Synchronisatie
