@@ -14,9 +14,12 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-arm64)
     echo "== iOS Simulator ARM64 framework =="
     ./gradlew --no-daemon --warning-mode all :shared:linkDebugFrameworkIosSimulatorArm64
+
+    echo "== iOS Device ARM64 Kotlin compile =="
+    ./gradlew --no-daemon --warning-mode all :shared:compileKotlinIosArm64
     ;;
   Darwin-x86_64)
-    echo "iOS compilecheck overgeslagen: Compose Multiplatform 1.12.0 gebruikt geen iosX64-target meer."
+    echo "iOS compilecheck overgeslagen: dit project gebruikt geen iosX64-target."
     ;;
   *)
     echo "iOS compilecheck overgeslagen: hiervoor is macOS/Xcode op Apple Silicon nodig."
