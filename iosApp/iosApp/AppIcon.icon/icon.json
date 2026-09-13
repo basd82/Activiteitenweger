@@ -1,0 +1,22 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.93333,0.96863,0.99216,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "Activiteitenweger.svg",
+          "name" : "Activiteitenweger"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.18
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}
