@@ -13,6 +13,8 @@ import net.dikkenberg.activiteitenweger.AppController
 import net.dikkenberg.activiteitenweger.AppUiState
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
+import net.dikkenberg.activiteitenweger.platform.appBuildNumber
+import net.dikkenberg.activiteitenweger.platform.appVersionName
 import kotlin.math.abs
 import kotlin.time.Clock
 
@@ -576,6 +578,10 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         Spacer(Modifier.height(12.dp))
         Text("Server: ${state.health}")
         Text("https://app.dikkenberg.net")
+        Spacer(Modifier.height(16.dp))
+        Text("App", style = MaterialTheme.typography.titleMedium)
+        Text("Versie ${appVersionName()} (build ${appBuildNumber()})")
+        Text("Copyright © 2026 Bas van den Dikkenberg")
         Spacer(Modifier.height(12.dp))
         Button(onClick = controller::syncCurrent, enabled = !state.busy) { Text("Nu synchroniseren") }
         Spacer(Modifier.height(20.dp))
