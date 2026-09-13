@@ -7,6 +7,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
 import net.dikkenberg.activiteitenweger.crypto.CryptoService
 import net.dikkenberg.activiteitenweger.data.VaultRepository
 import net.dikkenberg.activiteitenweger.model.AccessMode
@@ -114,6 +117,78 @@ class AppController(
         )
     }
 
+    fun addManualActivity(
+        description: String,
+        category: ActivityCategory,
+        startDate: String,
+        startTime: String,
+        endDate: String,
+        endTime: String,
+    ) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val startedAt = localDateTimeToInstant(startDate, startTime)
+        val endedAt = localDateTimeToInstant(endDate, endTime)
+        check(kotlin.time.Instant.parse(endedAt) >= kotlin.time.Instant.parse(startedAt)) {
+            "Eindtijd mag niet vóór de starttijd liggen"
+        }
+        val created = repository.createActivity(
+            session = session,
+            description = description,
+            category = category,
+            startedAt = startedAt,
+            endedAt = endedAt,
+        )
+        _state.value = _state.value.copy(
+            activities = (listOf(created) + _state.value.activities)
+                .sortedByDescending { it.payload.startedAt },
+            message = "Activiteit handmatig toegevoegd",
+        )
+    }
+
+    fun updateActivity(
+        item: ActivityItem,
+        description: String,
+        category: ActivityCategory,
+        startDate: String,
+        startTime: String,
+        endDate: String,
+        endTime: String,
+    ) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val startedAt = localDateTimeToInstant(startDate, startTime)
+        val endedAt = localDateTimeToInstant(endDate, endTime)
+        check(kotlin.time.Instant.parse(endedAt) >= kotlin.time.Instant.parse(startedAt)) {
+            "Eindtijd mag niet vóór de starttijd liggen"
+        }
+        val updated = repository.updateActivity(
+            session,
+            item.copy(
+                payload = item.payload.copy(
+                    startedAt = startedAt,
+                    endedAt = endedAt,
+                    description = description.trim().ifBlank { "Activiteit" },
+                    category = category,
+                )
+            )
+        )
+        _state.value = _state.value.copy(
+            activities = _state.value.activities
+                .map { if (it.recordId == updated.recordId) updated else it }
+                .sortedByDescending { it.payload.startedAt },
+            message = "Activiteit gewijzigd",
+        )
+    }
+
+    fun renameProfile(vaultId: String, label: String) {
+        val updated = repository.renameSession(vaultId, label)
+        _state.value = _state.value.copy(
+            sessions = _state.value.sessions.map {
+                if (it.vaultId == vaultId) updated else it
+            },
+            message = "Profielnaam gewijzigd",
+        )
+    }
+
     fun deleteActivity(item: ActivityItem) = launchBusy {
         val session = requireNotNull(_state.value.selectedSession)
         repository.deleteActivity(session, item)
@@ -147,6 +222,14 @@ class AppController(
 
     fun clearNotice() {
         _state.value = _state.value.copy(message = null, error = null)
+    }
+
+    private fun localDateTimeToInstant(date: String, time: String): String {
+        val trimmedTime = time.trim()
+        val normalizedTime = if (trimmedTime.count { it == ':' } == 1) "$trimmedTime:00" else trimmedTime
+        return LocalDateTime.parse("${date.trim()}T$normalizedTime")
+            .toInstant(TimeZone.currentSystemDefault())
+            .toString()
     }
 
     private fun launchBusy(block: suspend () -> Unit) {
