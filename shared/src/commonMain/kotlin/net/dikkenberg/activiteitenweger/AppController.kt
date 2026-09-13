@@ -191,7 +191,7 @@ class AppController(
         val created = repository.startActivity(session, description, category)
         _state.value = _state.value.copy(
             activities = listOf(created) + _state.value.activities,
-            message = "Activiteit gestart",
+            message = null,
         )
     }
 
@@ -203,7 +203,7 @@ class AppController(
             activities = _state.value.activities.map {
                 if (it.recordId == updated.recordId) updated else it
             },
-            message = "Activiteit afgerond",
+            message = null,
         )
     }
 
