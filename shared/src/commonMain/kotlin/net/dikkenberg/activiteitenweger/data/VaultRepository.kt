@@ -13,6 +13,7 @@ import net.dikkenberg.activiteitenweger.crypto.toBase64Url
 import net.dikkenberg.activiteitenweger.model.AccessMode
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
+import net.dikkenberg.activiteitenweger.model.ActivityPreset
 import net.dikkenberg.activiteitenweger.model.ActivityRecordPayload
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
@@ -161,6 +162,13 @@ class VaultRepository(
     fun updateCategories(vaultId: String, categories: List<ActivityCategory>): VaultSession {
         val current = sessions.list().first { it.vaultId == vaultId }
         val updated = current.copy(categories = categories)
+        sessions.save(updated)
+        return updated
+    }
+
+    fun updateActivityPresets(vaultId: String, presets: List<ActivityPreset>): VaultSession {
+        val current = sessions.list().first { it.vaultId == vaultId }
+        val updated = current.copy(activityPresets = presets)
         sessions.save(updated)
         return updated
     }
