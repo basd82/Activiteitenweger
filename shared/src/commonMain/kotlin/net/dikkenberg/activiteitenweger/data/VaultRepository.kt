@@ -158,6 +158,13 @@ class VaultRepository(
         return updated
     }
 
+    fun updateCategories(vaultId: String, categories: List<ActivityCategory>): VaultSession {
+        val current = sessions.list().first { it.vaultId == vaultId }
+        val updated = current.copy(categories = categories)
+        sessions.save(updated)
+        return updated
+    }
+
     suspend fun deleteVault(session: VaultSession) {
         check(session.owner) { "Alleen de eigenaar kan de volledige vault verwijderen" }
         api.deleteVault(session)
