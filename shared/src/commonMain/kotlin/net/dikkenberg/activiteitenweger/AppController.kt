@@ -27,6 +27,7 @@ import net.dikkenberg.activiteitenweger.platform.saveExcelFile
 import net.dikkenberg.activiteitenweger.storage.SessionStore
 import net.dikkenberg.activiteitenweger.storage.createSecureStore
 import kotlin.time.Clock
+import kotlin.uuid.Uuid
 
 
 data class AppUiState(
@@ -47,6 +48,9 @@ data class AppUiState(
 
     val canWrite: Boolean
         get() = selectedSession?.access == AccessMode.RW
+
+    val categories: List<ActivityCategory>
+        get() = selectedSession?.categories ?: ActivityCategory.defaults
 }
 
 class AppController(
@@ -171,12 +175,13 @@ class AppController(
         val updated = repository.updateActivity(
             session,
             item.copy(
-                payload = item.payload.copy(
-                    startedAt = startedAt,
-                    endedAt = endedAt,
-                    description = description.trim().ifBlank { "Activiteit" },
-                    category = category,
-                )
+                payload = item.payload
+                    .copy(
+                        startedAt = startedAt,
+                        endedAt = endedAt,
+                        description = description.trim().ifBlank { "Activiteit" },
+                    )
+                    .withCategory(category)
             )
         )
         _state.value = _state.value.copy(
@@ -197,6 +202,60 @@ class AppController(
         )
     }
 
+    fun saveCategory(
+        categoryId: String?,
+        label: String,
+        pointsPer30Minutes: Double,
+    ) {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+
+        val cleanLabel = label.trim()
+        require(cleanLabel.isNotBlank()) { "Vul een categorienaam in" }
+        require(pointsPer30Minutes.isFinite()) { "Vul een geldig puntenaantal in" }
+
+        val duplicate = session.categories.any {
+            it.id != categoryId && it.label.equals(cleanLabel, ignoreCase = true)
+        }
+        check(!duplicate) { "Er bestaat al een categorie met deze naam" }
+
+        val updatedCategory = ActivityCategory(
+            id = categoryId ?: "custom-${Uuid.random()}",
+            label = cleanLabel,
+            pointsPer30Minutes = pointsPer30Minutes,
+        )
+        val categories = if (categoryId == null) {
+            session.categories + updatedCategory
+        } else {
+            session.categories.map {
+                if (it.id == categoryId) updatedCategory else it
+            }
+        }
+        updateSessionCategories(session, categories)
+        _state.value = _state.value.copy(
+            message = if (categoryId == null) "Categorie toegevoegd" else "Categorie gewijzigd",
+        )
+    }
+
+    fun deleteCategory(categoryId: String) {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+        check(session.categories.size > 1) { "Er moet minimaal één categorie overblijven" }
+
+        val categories = session.categories.filterNot { it.id == categoryId }
+        check(categories.size != session.categories.size) { "Categorie niet gevonden" }
+
+        updateSessionCategories(session, categories)
+        _state.value = _state.value.copy(message = "Categorie verwijderd")
+    }
+
+    fun restoreDefaultCategories() {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+        updateSessionCategories(session, ActivityCategory.defaults)
+        _state.value = _state.value.copy(message = "Standaardcategorieën hersteld")
+    }
+
     fun deleteActivity(item: ActivityItem) = launchBusy {
         val session = requireNotNull(_state.value.selectedSession)
         repository.deleteActivity(session, item)
@@ -208,7 +267,12 @@ class AppController(
 
     fun exportExcel() = launchBusy {
         val session = requireNotNull(_state.value.selectedSession)
-        val bytes = ExcelTransfer.exportWorkbook(_state.value.activities)
+        val exportCategories = (session.categories + _state.value.activities.map { it.payload.category })
+            .distinctBy { it.id }
+        val bytes = ExcelTransfer.exportWorkbook(
+            activities = _state.value.activities,
+            categories = exportCategories,
+        )
         val date = Clock.System.now()
             .toLocalDateTime(TimeZone.currentSystemDefault())
             .date
@@ -228,7 +292,11 @@ class AppController(
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
         val bytes = pickExcelFileBytes() ?: return@launchBusy
-        val parsed = ExcelTransfer.importWorkbook(bytes, fallbackYear)
+        val parsed = ExcelTransfer.importWorkbook(
+            bytes = bytes,
+            fallbackYear = fallbackYear,
+            categories = session.categories,
+        )
 
         val knownKeys = _state.value.activities
             .mapTo(mutableSetOf()) {
@@ -313,6 +381,18 @@ class AppController(
         _state.value = _state.value.copy(message = null, error = null)
     }
 
+    private fun updateSessionCategories(
+        session: VaultSession,
+        categories: List<ActivityCategory>,
+    ) {
+        val updated = repository.updateCategories(session.vaultId, categories)
+        _state.value = _state.value.copy(
+            sessions = _state.value.sessions.map {
+                if (it.vaultId == updated.vaultId) updated else it
+            },
+        )
+    }
+
     private fun activityKey(
         startedAt: String,
         endedAt: String?,
@@ -323,7 +403,7 @@ class AppController(
             startedAt,
             endedAt.orEmpty(),
             description.trim(),
-            category.name,
+            category.id,
         ).joinToString("|")
 
     private fun safeFilePart(value: String): String =
