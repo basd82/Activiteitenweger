@@ -31,7 +31,7 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 
 ## Nog bewust niet actief
 
-Categorieën en standaardactiviteiten worden nu lokaal per profiel bewaard. Ze moeten vóór multi-device gebruik als end-to-end versleutelde profielinstellingen worden gesynchroniseerd, zodat alle gekoppelde apparaten dezelfde configuratie gebruiken.
+Categorieën, punten, profielnaam en standaardactiviteiten worden als één end-to-end versleuteld profielinstellingen-record via dezelfde vault-sync gesynchroniseerd. De server ziet alleen ciphertext.
 
 Pairing via QR/koppelcode, R/RW grants, self-revoke van een behandelaar, access-events en key rotation zijn in de UI/datamodellen voorbereid maar kunnen nog niet functioneel zijn totdat de server de pairing/device-grant endpoints en de many-to-many `vault_devices` migratie heeft. De app doet hier dus niet alsof het al werkt.
 
