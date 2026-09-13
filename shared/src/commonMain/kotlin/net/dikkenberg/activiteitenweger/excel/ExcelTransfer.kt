@@ -69,7 +69,7 @@ object ExcelTransfer {
         val ordered = activities.sortedBy { it.payload.startedAt }
         val grouped = ordered.groupBy {
             Instant.parse(it.payload.startedAt).toLocalDateTime(timeZone).date
-        }.toSortedMap()
+        }.entries.sortedBy { it.key }
 
         if (grouped.isEmpty()) {
             excel.rename("Sheet1", "Instellingen")
@@ -78,11 +78,13 @@ object ExcelTransfer {
             return requireNotNull(excel.encode()) { "Excel-bestand kon niet worden gemaakt" }
         }
 
-        val firstDate = grouped.keys.first()
+        val firstDate = grouped.first().key
         val firstSheetName = sheetName(firstDate)
         excel.rename("Sheet1", firstSheetName)
 
-        grouped.entries.forEachIndexed { index, (date, items) ->
+        grouped.forEachIndexed { index, entry ->
+            val date = entry.key
+            val items = entry.value
             val name = sheetName(date)
             val sheet = if (index == 0) excel[firstSheetName] else excel[name]
             writeDaySheet(sheet, items, timeZone)
