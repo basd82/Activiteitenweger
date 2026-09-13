@@ -866,7 +866,7 @@ private fun timeRange(item: ActivityItem): String {
 private fun formatIsoDateForDisplay(value: String): String {
     val date = LocalDate.parse(value)
     return "${date.day.toString().padStart(2, '0')}-" +
-        "${date.monthNumber.toString().padStart(2, '0')}-${date.year}"
+        "${(date.month.ordinal + 1).toString().padStart(2, '0')}-${date.year}"
 }
 
 private fun isoDateToUtcMillis(value: String): Long =
