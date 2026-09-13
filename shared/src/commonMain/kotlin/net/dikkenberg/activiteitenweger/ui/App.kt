@@ -112,7 +112,7 @@ private fun Content(
     Box(modifier.fillMaxSize()) {
         when (destination) {
             Destination.TODAY -> TodayScreen(state, controller)
-            Destination.HISTORY -> HistoryScreen(state)
+            Destination.HISTORY -> HistoryScreen(state, controller)
             Destination.CLIENTS -> ProfilesScreen(state, controller)
             Destination.SHARE -> ShareScreen(state)
             Destination.SETTINGS -> SettingsScreen(state, controller)
@@ -149,6 +149,8 @@ private fun WelcomeScreen(busy: Boolean, error: String?, onCreate: (String) -> U
 @Composable
 private fun TodayScreen(state: AppUiState, controller: AppController) {
     var showStart by remember { mutableStateOf(false) }
+    var showManual by remember { mutableStateOf(false) }
+    var editingItem by remember { mutableStateOf<ActivityItem?>(null) }
     val now = rememberTicker()
     val completed = state.activities.filter { it.payload.endedAt != null }
     val today = completed.filter { it.payload.localDate() == localToday() }
@@ -191,6 +193,13 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
             ) { Text("Start activiteit") }
         }
 
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { showManual = true },
+            enabled = state.canWrite && !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Activiteit handmatig invoeren") }
+
         if (!state.canWrite) {
             Spacer(Modifier.height(8.dp))
             Text("Dit profiel is alleen-lezen (R).", color = MaterialTheme.colorScheme.primary)
@@ -202,9 +211,14 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
         androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.activities.size) { index ->
                 val item = state.activities[index]
-                ActivityCard(item, now, canDelete = state.canWrite) {
-                    controller.deleteActivity(item)
-                }
+                ActivityCard(
+                    item = item,
+                    now = now,
+                    canEdit = state.canWrite && item.payload.endedAt != null,
+                    canDelete = state.canWrite && item.payload.endedAt != null,
+                    onEdit = { editingItem = item },
+                    onDelete = { controller.deleteActivity(item) },
+                )
             }
         }
     }
@@ -218,10 +232,53 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
             }
         )
     }
+
+    if (showManual) {
+        ActivityEditorDialog(
+            title = "Activiteit handmatig invoeren",
+            initialDescription = "",
+            initialCategory = ActivityCategory.LIGHT,
+            initialStartDate = localToday(),
+            initialStartTime = formatLocalTime(Clock.System.now().toString()),
+            initialEndDate = localToday(),
+            initialEndTime = formatLocalTime(Clock.System.now().toString()),
+            confirmLabel = "Toevoegen",
+            onDismiss = { showManual = false },
+            onSave = { description, category, startDate, startTime, endDate, endTime ->
+                showManual = false
+                controller.addManualActivity(description, category, startDate, startTime, endDate, endTime)
+            },
+        )
+    }
+
+    editingItem?.let { item ->
+        ActivityEditorDialog(
+            title = "Activiteit wijzigen",
+            initialDescription = item.payload.description,
+            initialCategory = item.payload.category,
+            initialStartDate = formatLocalDate(item.payload.startedAt),
+            initialStartTime = formatLocalTime(item.payload.startedAt),
+            initialEndDate = formatLocalDate(requireNotNull(item.payload.endedAt)),
+            initialEndTime = formatLocalTime(requireNotNull(item.payload.endedAt)),
+            confirmLabel = "Opslaan",
+            onDismiss = { editingItem = null },
+            onSave = { description, category, startDate, startTime, endDate, endTime ->
+                editingItem = null
+                controller.updateActivity(item, description, category, startDate, startTime, endDate, endTime)
+            },
+        )
+    }
 }
 
 @Composable
-private fun ActivityCard(item: ActivityItem, now: kotlin.time.Instant, canDelete: Boolean, onDelete: () -> Unit) {
+private fun ActivityCard(
+    item: ActivityItem,
+    now: kotlin.time.Instant,
+    canEdit: Boolean,
+    canDelete: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
     OutlinedCard(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -230,8 +287,13 @@ private fun ActivityCard(item: ActivityItem, now: kotlin.time.Instant, canDelete
                 Text("${item.payload.category.label} · ${formatDuration(item.payload.durationSeconds(now))}")
                 Text("${formatPoints(item.payload.points(now))} punten", style = MaterialTheme.typography.bodySmall)
             }
-            if (item.payload.endedAt != null && canDelete) {
-                TextButton(onClick = onDelete) { Text("Verwijder") }
+            Column(horizontalAlignment = Alignment.End) {
+                if (canEdit) {
+                    TextButton(onClick = onEdit) { Text("Wijzig") }
+                }
+                if (canDelete) {
+                    TextButton(onClick = onDelete) { Text("Verwijder") }
+                }
             }
         }
     }
@@ -267,7 +329,97 @@ private fun StartActivityDialog(onDismiss: () -> Unit, onStart: (String, Activit
 }
 
 @Composable
-private fun HistoryScreen(state: AppUiState) {
+private fun ActivityEditorDialog(
+    title: String,
+    initialDescription: String,
+    initialCategory: ActivityCategory,
+    initialStartDate: String,
+    initialStartTime: String,
+    initialEndDate: String,
+    initialEndTime: String,
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onSave: (String, ActivityCategory, String, String, String, String) -> Unit,
+) {
+    var description by remember { mutableStateOf(initialDescription) }
+    var category by remember { mutableStateOf(initialCategory) }
+    var startDate by remember { mutableStateOf(initialStartDate) }
+    var startTime by remember { mutableStateOf(initialStartTime) }
+    var endDate by remember { mutableStateOf(initialEndDate) }
+    var endTime by remember { mutableStateOf(initialEndTime) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Activiteit") },
+                    singleLine = true,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = startDate,
+                        onValueChange = { startDate = it },
+                        label = { Text("Startdatum") },
+                        placeholder = { Text("2026-09-13") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = startTime,
+                        onValueChange = { startTime = it },
+                        label = { Text("Starttijd") },
+                        placeholder = { Text("09:30") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = endDate,
+                        onValueChange = { endDate = it },
+                        label = { Text("Einddatum") },
+                        placeholder = { Text("2026-09-13") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = endTime,
+                        onValueChange = { endTime = it },
+                        label = { Text("Eindtijd") },
+                        placeholder = { Text("10:00") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                ActivityCategory.entries.forEach { option ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = category == option, onClick = { category = option })
+                        Text("${option.label} (${signed(option.pointsPer30Minutes)} per 30 min)")
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(description, category, startDate, startTime, endDate, endTime)
+                }
+            ) { Text(confirmLabel) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuleer") } },
+    )
+}
+
+@Composable
+private fun HistoryScreen(state: AppUiState, controller: AppController) {
+    var editingItem by remember { mutableStateOf<ActivityItem?>(null) }
     val groups = state.activities
         .filter { it.payload.endedAt != null }
         .groupBy { it.payload.localDate() }
@@ -284,14 +436,44 @@ private fun HistoryScreen(state: AppUiState) {
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
-            items(items.size) { index -> ActivityCard(items[index], Clock.System.now(), false) {} }
+            items(items.size) { index ->
+                val activity = items[index]
+                ActivityCard(
+                    item = activity,
+                    now = Clock.System.now(),
+                    canEdit = state.canWrite,
+                    canDelete = state.canWrite,
+                    onEdit = { editingItem = activity },
+                    onDelete = { controller.deleteActivity(activity) },
+                )
+            }
         }
+    }
+
+    editingItem?.let { item ->
+        ActivityEditorDialog(
+            title = "Activiteit wijzigen",
+            initialDescription = item.payload.description,
+            initialCategory = item.payload.category,
+            initialStartDate = formatLocalDate(item.payload.startedAt),
+            initialStartTime = formatLocalTime(item.payload.startedAt),
+            initialEndDate = formatLocalDate(requireNotNull(item.payload.endedAt)),
+            initialEndTime = formatLocalTime(requireNotNull(item.payload.endedAt)),
+            confirmLabel = "Opslaan",
+            onDismiss = { editingItem = null },
+            onSave = { description, category, startDate, startTime, endDate, endTime ->
+                editingItem = null
+                controller.updateActivity(item, description, category, startDate, startTime, endDate, endTime)
+            },
+        )
     }
 }
 
 @Composable
 private fun ProfilesScreen(state: AppUiState, controller: AppController) {
     var newProfile by remember { mutableStateOf(false) }
+    var editingVaultId by remember { mutableStateOf<String?>(null) }
+    var editingLabel by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Profielen / cliënten", style = MaterialTheme.typography.headlineMedium)
         Text("Eén app-installatie kan meerdere versleutelde vaults beheren.")
@@ -306,13 +488,47 @@ private fun ProfilesScreen(state: AppUiState, controller: AppController) {
                         Text(session.label, style = MaterialTheme.typography.titleMedium)
                         Text(if (session.owner) "Eigen profiel" else "Gekoppeld profiel")
                     }
-                    Text(session.access.name)
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(session.access.name)
+                        TextButton(
+                            onClick = {
+                                editingVaultId = session.vaultId
+                                editingLabel = session.label
+                            }
+                        ) { Text("Naam wijzigen") }
+                    }
                 }
             }
         }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(onClick = { newProfile = true }) { Text("Nieuw eigen profiel") }
     }
+    editingVaultId?.let { vaultId ->
+        AlertDialog(
+            onDismissRequest = { editingVaultId = null },
+            title = { Text("Profielnaam wijzigen") },
+            text = {
+                OutlinedTextField(
+                    value = editingLabel,
+                    onValueChange = { editingLabel = it },
+                    label = { Text("Naam") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        controller.renameProfile(vaultId, editingLabel)
+                        editingVaultId = null
+                    }
+                ) { Text("Opslaan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingVaultId = null }) { Text("Annuleer") }
+            },
+        )
+    }
+
     if (newProfile) {
         var label by remember { mutableStateOf("Nieuw profiel") }
         AlertDialog(
@@ -422,6 +638,12 @@ private fun timeRange(item: ActivityItem): String {
     val end = item.payload.endedAt?.let(::formatLocalTime)
     return if (end == null) "Vanaf $start" else "$start – $end"
 }
+
+private fun formatLocalDate(value: String): String =
+    kotlin.time.Instant.parse(value)
+        .toLocalDateTime(TimeZone.currentSystemDefault())
+        .date
+        .toString()
 
 private fun formatLocalTime(value: String): String {
     val time = kotlin.time.Instant.parse(value)
