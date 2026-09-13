@@ -15,13 +15,17 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import net.dikkenberg.activiteitenweger.crypto.CryptoService
 import net.dikkenberg.activiteitenweger.data.VaultRepository
+import net.dikkenberg.activiteitenweger.excel.ExcelTransfer
 import net.dikkenberg.activiteitenweger.model.AccessMode
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
+import net.dikkenberg.activiteitenweger.platform.pickExcelFileBytes
+import net.dikkenberg.activiteitenweger.platform.saveExcelFile
 import net.dikkenberg.activiteitenweger.storage.SessionStore
 import net.dikkenberg.activiteitenweger.storage.createSecureStore
+import kotlin.time.Clock
 
 
 data class AppUiState(
@@ -201,6 +205,87 @@ class AppController(
         )
     }
 
+    fun exportExcel() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val bytes = ExcelTransfer.exportWorkbook(_state.value.activities)
+        val date = Clock.System.now()
+            .toLocalDateTime(TimeZone.currentSystemDefault())
+            .date
+            .toString()
+        val label = safeFilePart(session.label)
+        val saved = saveExcelFile(
+            suggestedName = "Activiteitenweger-$label-$date",
+            bytes = bytes,
+        )
+        if (saved) {
+            _state.value = _state.value.copy(message = "Excel-bestand geëxporteerd")
+        }
+    }
+
+    fun importExcel(fallbackYear: Int) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+
+        val bytes = pickExcelFileBytes() ?: return@launchBusy
+        val parsed = ExcelTransfer.importWorkbook(bytes, fallbackYear)
+
+        val knownKeys = _state.value.activities
+            .mapTo(mutableSetOf()) {
+                activityKey(
+                    startedAt = it.payload.startedAt,
+                    endedAt = it.payload.endedAt,
+                    description = it.payload.description,
+                    category = it.payload.category,
+                )
+            }
+        val importKeys = mutableSetOf<String>()
+        val created = mutableListOf<ActivityItem>()
+        var duplicates = 0
+
+        try {
+            for (row in parsed.activities) {
+                val startedAt = localDateTimeToInstant(row.startDate.toString(), row.startTime.toString())
+                val endedAt = localDateTimeToInstant(row.endDate.toString(), row.endTime.toString())
+                val key = activityKey(
+                    startedAt = startedAt,
+                    endedAt = endedAt,
+                    description = row.description,
+                    category = row.category,
+                )
+                if (key in knownKeys || !importKeys.add(key)) {
+                    duplicates++
+                    continue
+                }
+
+                val item = repository.createActivity(
+                    session = session,
+                    description = row.description,
+                    category = row.category,
+                    startedAt = startedAt,
+                    endedAt = endedAt,
+                )
+                created += item
+                knownKeys += key
+            }
+        } finally {
+            if (created.isNotEmpty()) {
+                _state.value = _state.value.copy(
+                    activities = (created + _state.value.activities)
+                        .sortedByDescending { it.payload.startedAt },
+                )
+            }
+        }
+
+        val details = buildList {
+            add("${created.size} toegevoegd")
+            if (duplicates > 0) add("$duplicates dubbel")
+            if (parsed.skippedRows > 0) add("${parsed.skippedRows} overgeslagen")
+            if (parsed.ignoredSheets > 0) add("${parsed.ignoredSheets} blad(en) genegeerd")
+        }.joinToString(", ")
+
+        _state.value = _state.value.copy(message = "Excel geïmporteerd: $details")
+    }
+
     fun deleteCurrentVault() = launchBusy {
         val session = requireNotNull(_state.value.selectedSession)
         repository.deleteVault(session)
@@ -226,6 +311,25 @@ class AppController(
     fun clearNotice() {
         _state.value = _state.value.copy(message = null, error = null)
     }
+
+    private fun activityKey(
+        startedAt: String,
+        endedAt: String?,
+        description: String,
+        category: ActivityCategory,
+    ): String =
+        listOf(
+            startedAt,
+            endedAt.orEmpty(),
+            description.trim(),
+            category.name,
+        ).joinToString("|")
+
+    private fun safeFilePart(value: String): String =
+        value.trim()
+            .replace(Regex("[^A-Za-z0-9._-]+"), "-")
+            .trim('-')
+            .ifBlank { "profiel" }
 
     private fun localDateTimeToInstant(date: String, time: String): String {
         val trimmedTime = time.trim()
