@@ -360,11 +360,11 @@ object ExcelTransfer {
                 TextCellValue(item.payload.category.label),
             )
             if (end != null) {
-                val settingsEndRow = categories.size + 1
+                val pointsPer30Minutes = item.payload.category.pointsPer30Minutes
                 sheet.updateCell(
                     CellIndex.indexByColumnRow(5, rowIndex),
                     FormulaCellValue(
-                        "=IF(OR(D$excelRow=\"\",D$excelRow<=0,E$excelRow=\"\"),\"\",D$excelRow/30*VLOOKUP(E$excelRow,'Instellingen'!\$A\$2:\$B\$settingsEndRow,2,FALSE))"
+                        "=IF(OR(D$excelRow=\"\",D$excelRow<=0),\"\",D$excelRow/30*$pointsPer30Minutes)"
                     ),
                 )
                 sheet.updateCell(
