@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.2 — 2026-09-13
+
+### Offline bediening
+- Starten, stoppen en wijzigen wachten niet meer op een netwerkrequest.
+- Een lopende automatische sync wordt geannuleerd zodra een lokale gebruikersactie voorrang nodig heeft.
+- Stoppen zet de lokale eindtijd direct vast; de teller stopt dus ook zonder internet.
+- De resulterende mutatie blijft in de outbox en synchroniseert later automatisch.
+- Appstart en profielwissel laden eerst de lokale cache en starten pas daarna een niet-blokkerende achtergrondsync.
+
+### Versie
+- Android: 0.2.2 build 12.
+- iOS: 0.2.2 build 12.
+
+
 ## 0.2.1 — 2026-09-13
 
 ### Offline synchronisatie
