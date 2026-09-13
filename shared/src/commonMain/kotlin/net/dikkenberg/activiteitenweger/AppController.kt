@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
@@ -23,6 +25,7 @@ import net.dikkenberg.activiteitenweger.model.ActivityItem
 import net.dikkenberg.activiteitenweger.model.ActivityPreset
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
+import net.dikkenberg.activiteitenweger.network.ApiException
 import net.dikkenberg.activiteitenweger.platform.pickExcelFileBytes
 import net.dikkenberg.activiteitenweger.platform.saveExcelFile
 import net.dikkenberg.activiteitenweger.storage.SessionStore
@@ -31,6 +34,14 @@ import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 
+data class SyncConflictInfo(
+    val recordId: String?,
+    val currentRevision: Long?,
+    val expectedRevision: Long?,
+    val currentDeleted: Boolean?,
+    val currentUpdatedAt: String?,
+)
+
 data class AppUiState(
     val initialized: Boolean = false,
     val busy: Boolean = false,
@@ -38,6 +49,10 @@ data class AppUiState(
     val selectedVaultId: String? = null,
     val activities: List<ActivityItem> = emptyList(),
     val health: String = "Onbekend",
+    val serverVersion: String? = null,
+    val syncing: Boolean = false,
+    val lastSyncAt: String? = null,
+    val conflict: SyncConflictInfo? = null,
     val message: String? = null,
     val error: String? = null,
 ) {
@@ -64,6 +79,7 @@ class AppController(
     private val api = ApiClient(crypto = crypto)
     private val sessionStore = SessionStore(createSecureStore(), api.json)
     private val repository = VaultRepository(api, crypto, sessionStore)
+    private val operationMutex = Mutex()
 
     private val _state = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = _state.asStateFlow()
@@ -79,7 +95,13 @@ class AppController(
                 selectedVaultId = selected,
             )
             checkHealth()
-            if (selected != null) syncCurrent()
+            if (selected != null) {
+                runSync(
+                    fullRefresh = true,
+                    announce = false,
+                    showBusy = true,
+                )
+            }
         }
     }
 
@@ -91,24 +113,43 @@ class AppController(
             activities = emptyList(),
             message = "Activiteitenweger aangemaakt",
         )
+        syncSelectedLocked(fullRefresh = true, announce = false)
     }
 
     fun selectVault(vaultId: String) {
-        _state.value = _state.value.copy(selectedVaultId = vaultId, activities = emptyList())
-        syncCurrent()
+        _state.value = _state.value.copy(
+            selectedVaultId = vaultId,
+            activities = emptyList(),
+            conflict = null,
+        )
+        scope.launch {
+            runSync(
+                fullRefresh = true,
+                announce = false,
+                showBusy = true,
+            )
+        }
     }
 
-    fun syncCurrent() = launchBusy {
-        val session = _state.value.selectedSession ?: return@launchBusy
-        val (updatedSession, activities) = repository.loadAllActivities(session)
-        val sessions = repository.sessions().map {
-            if (it.vaultId == updatedSession.vaultId) updatedSession else it
+    fun syncCurrent() {
+        scope.launch {
+            runSync(
+                fullRefresh = false,
+                announce = true,
+                showBusy = true,
+            )
         }
-        _state.value = _state.value.copy(
-            sessions = sessions,
-            activities = activities,
-            message = "Gesynchroniseerd",
-        )
+    }
+
+    fun syncCurrentSilently() {
+        if (!_state.value.initialized || _state.value.selectedSession == null) return
+        scope.launch {
+            runSync(
+                fullRefresh = false,
+                announce = false,
+                showBusy = false,
+            )
+        }
     }
 
     fun startActivity(description: String, category: ActivityCategory) = launchBusy {
@@ -119,6 +160,7 @@ class AppController(
             activities = listOf(created) + _state.value.activities,
             message = "Activiteit gestart",
         )
+        syncAfterMutationLocked()
     }
 
     fun stopActiveActivity() = launchBusy {
@@ -131,6 +173,7 @@ class AppController(
             },
             message = "Activiteit afgerond",
         )
+        syncAfterMutationLocked()
     }
 
     fun addManualActivity(
@@ -159,6 +202,7 @@ class AppController(
                 .sortedByDescending { it.payload.startedAt },
             message = "Activiteit handmatig toegevoegd",
         )
+        syncAfterMutationLocked()
     }
 
     fun updateActivity(
@@ -194,6 +238,7 @@ class AppController(
                 .sortedByDescending { it.payload.startedAt },
             message = "Activiteit gewijzigd",
         )
+        syncAfterMutationLocked()
     }
 
     fun renameProfile(vaultId: String, label: String) = launchBusy {
@@ -204,6 +249,7 @@ class AppController(
         )
         replaceSession(updated)
         _state.value = _state.value.copy(message = "Profielnaam gewijzigd")
+        syncAfterMutationLocked()
     }
 
     fun saveCategory(
@@ -244,6 +290,7 @@ class AppController(
         _state.value = _state.value.copy(
             message = if (categoryId == null) "Categorie toegevoegd" else "Categorie gewijzigd",
         )
+        syncAfterMutationLocked()
     }
 
     fun deleteCategory(categoryId: String) = launchBusy {
@@ -263,6 +310,7 @@ class AppController(
         )
         replaceSession(updated)
         _state.value = _state.value.copy(message = "Categorie verwijderd")
+        syncAfterMutationLocked()
     }
 
     fun saveActivityPreset(
@@ -307,6 +355,7 @@ class AppController(
                 "Standaardactiviteit gewijzigd"
             },
         )
+        syncAfterMutationLocked()
     }
 
     fun deleteActivityPreset(presetId: String) = launchBusy {
@@ -324,6 +373,7 @@ class AppController(
         )
         replaceSession(updated)
         _state.value = _state.value.copy(message = "Standaardactiviteit verwijderd")
+        syncAfterMutationLocked()
     }
 
     fun deleteActivity(item: ActivityItem) = launchBusy {
@@ -333,6 +383,7 @@ class AppController(
             activities = _state.value.activities.filterNot { it.recordId == item.recordId },
             message = "Activiteit verwijderd",
         )
+        syncAfterMutationLocked()
     }
 
     fun exportExcel() = launchBusy {
@@ -423,6 +474,9 @@ class AppController(
         }.joinToString(", ")
 
         _state.value = _state.value.copy(message = "Excel geïmporteerd: $details")
+        if (created.isNotEmpty()) {
+            syncAfterMutationLocked()
+        }
     }
 
     fun deleteCurrentVault() = launchBusy {
@@ -436,19 +490,35 @@ class AppController(
             activities = emptyList(),
             message = "Alle servergegevens van deze Activiteitenweger zijn verwijderd",
         )
-        if (selected != null) syncCurrent()
+        if (selected != null) {
+            syncSelectedLocked(fullRefresh = true, announce = false)
+        }
     }
 
     fun checkHealth() {
         scope.launch {
             runCatching { api.health() }
-                .onSuccess { _state.value = _state.value.copy(health = "Online") }
-                .onFailure { _state.value = _state.value.copy(health = "Niet bereikbaar") }
+                .onSuccess { response ->
+                    _state.value = _state.value.copy(
+                        health = "Online",
+                        serverVersion = response.serverVersion,
+                    )
+                }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        health = "Niet bereikbaar",
+                        serverVersion = null,
+                    )
+                }
         }
     }
 
     fun clearNotice() {
-        _state.value = _state.value.copy(message = null, error = null)
+        _state.value = _state.value.copy(
+            message = null,
+            error = null,
+            conflict = null,
+        )
     }
 
     private fun replaceSession(updated: VaultSession) {
@@ -486,12 +556,135 @@ class AppController(
             .toString()
     }
 
-    private fun launchBusy(block: suspend () -> Unit) {
-        scope.launch {
+    private suspend fun syncSelectedLocked(
+        fullRefresh: Boolean,
+        announce: Boolean,
+    ) {
+        val before = _state.value
+        val session = before.selectedSession ?: return
+        _state.value = before.copy(syncing = true)
+
+        try {
+            val (updatedSession, activities) = repository.syncActivities(
+                session = session,
+                currentActivities = if (fullRefresh) emptyList() else before.activities,
+                fullRefresh = fullRefresh,
+            )
+            val sessions = repository.sessions().map {
+                if (it.vaultId == updatedSession.vaultId) updatedSession else it
+            }
+            _state.value = _state.value.copy(
+                sessions = sessions,
+                activities = activities,
+                lastSyncAt = Clock.System.now().toString(),
+                syncing = false,
+                message = if (announce) "Gesynchroniseerd" else _state.value.message,
+            )
+        } catch (e: Throwable) {
+            _state.value = _state.value.copy(syncing = false)
+            throw e
+        }
+    }
+
+    private suspend fun syncAfterMutationLocked() {
+        runCatching {
+            syncSelectedLocked(
+                fullRefresh = false,
+                announce = false,
+            )
+        }.onFailure {
+            _state.value = _state.value.copy(
+                error = "De wijziging is opgeslagen, maar het ophalen van de nieuwste synchronisatiestatus is mislukt: " +
+                    (it.message ?: it::class.simpleName),
+            )
+        }
+    }
+
+    private suspend fun handleRevisionConflictLocked(exception: ApiException) {
+        val conflict = SyncConflictInfo(
+            recordId = exception.recordId,
+            currentRevision = exception.currentRevision,
+            expectedRevision = exception.expectedRevision,
+            currentDeleted = exception.currentDeleted,
+            currentUpdatedAt = exception.currentUpdatedAt,
+        )
+
+        val refreshError = runCatching {
+            syncSelectedLocked(
+                fullRefresh = false,
+                announce = false,
+            )
+        }.exceptionOrNull()
+
+        val revisionText = exception.currentRevision?.let { " Serverrevision: $it." }.orEmpty()
+        val refreshText = if (refreshError == null) {
+            " De nieuwste serverversie is geladen."
+        } else {
+            " Het opnieuw ophalen van de serverversie is ook mislukt."
+        }
+
+        _state.value = _state.value.copy(
+            conflict = conflict,
+            error = "Synchronisatieconflict: dit item is ondertussen op een ander apparaat gewijzigd. " +
+                "Jouw wijziging is niet opgeslagen." + revisionText + refreshText,
+        )
+    }
+
+    private suspend fun runSync(
+        fullRefresh: Boolean,
+        announce: Boolean,
+        showBusy: Boolean,
+    ) {
+        if (showBusy) {
             _state.value = _state.value.copy(busy = true, error = null)
-            runCatching { block() }
-                .onFailure { e -> _state.value = _state.value.copy(error = e.message ?: e::class.simpleName) }
+        }
+
+        operationMutex.withLock {
+            runCatching {
+                syncSelectedLocked(
+                    fullRefresh = fullRefresh,
+                    announce = announce,
+                )
+            }.onFailure { e ->
+                _state.value = _state.value.copy(
+                    error = e.message ?: e::class.simpleName,
+                )
+            }
+        }
+
+        if (showBusy) {
             _state.value = _state.value.copy(busy = false)
         }
     }
+
+    private fun launchBusy(block: suspend () -> Unit) {
+        scope.launch {
+            _state.value = _state.value.copy(
+                busy = true,
+                error = null,
+                conflict = null,
+            )
+
+            operationMutex.withLock {
+                try {
+                    block()
+                } catch (e: ApiException) {
+                    if (e.isRevisionConflict) {
+                        handleRevisionConflictLocked(e)
+                    } else {
+                        _state.value = _state.value.copy(
+                            error = e.message ?: e::class.simpleName,
+                        )
+                    }
+                } catch (e: Throwable) {
+                    _state.value = _state.value.copy(
+                        error = e.message ?: e::class.simpleName,
+                    )
+                }
+            }
+
+            _state.value = _state.value.copy(busy = false)
+        }
+    }
+
 }
