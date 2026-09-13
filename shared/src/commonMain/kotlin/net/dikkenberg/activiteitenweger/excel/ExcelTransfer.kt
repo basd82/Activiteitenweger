@@ -90,7 +90,7 @@ object ExcelTransfer {
             val items = entry.value
             val name = sheetName(date)
             val sheet = if (index == 0) excel[firstSheetName] else excel[name]
-            writeDaySheet(sheet, items, timeZone, categories)
+            writeDaySheet(sheet, items, timeZone)
         }
 
         writeSettings(excel["Instellingen"], categories)
@@ -314,7 +314,6 @@ object ExcelTransfer {
         sheet: com.gyanoba.kexcel.sheet.Sheet,
         items: List<ActivityItem>,
         timeZone: TimeZone,
-        categories: List<ActivityCategory>,
     ) {
         val headerStyle = CellStyle(bold = true)
         headers.forEachIndexed { column, header ->
