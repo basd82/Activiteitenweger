@@ -64,6 +64,26 @@ class ApiClient(
     suspend fun devices(session: VaultSession): DevicesResponse =
         signedJson(HttpMethod.Get, "/api/v1/devices", "", session)
 
+    suspend fun createPairingInvite(
+        session: VaultSession,
+        request: CreatePairingInviteRequest,
+    ): CreatePairingInviteResponse {
+        val raw = json.encodeToString(request)
+        return signedJson(HttpMethod.Post, "/api/v1/pairing/invites", raw, session)
+    }
+
+    suspend fun claimPairing(request: ClaimPairingRequest): ClaimPairingResponse =
+        publicJson(HttpMethod.Post, "/api/v1/pairing/claim", request)
+
+    suspend fun revokePairingInvite(session: VaultSession, inviteId: String): RevokeResponse =
+        signedJson(HttpMethod.Delete, "/api/v1/pairing/invites/$inviteId", "", session)
+
+    suspend fun revokeDevice(session: VaultSession, deviceId: String): RevokeResponse =
+        signedJson(HttpMethod.Delete, "/api/v1/devices/$deviceId", "", session)
+
+    suspend fun selfRevoke(session: VaultSession): RevokeResponse =
+        signedJson(HttpMethod.Delete, "/api/v1/me/access", "", session)
+
     suspend fun upsertRecord(session: VaultSession, request: UpsertRecordRequest): UpsertRecordResponse {
         val raw = json.encodeToString(request)
         return signedJson(HttpMethod.Post, "/api/v1/records", raw, session)
@@ -127,6 +147,7 @@ class ApiClient(
         val response = client.request(baseUrl + path) {
             this.method = method
             headers.append("X-AW-Device-Id", session.deviceId)
+            headers.append("X-AW-Vault-Id", session.vaultId)
             headers.append("X-AW-Timestamp", timestamp)
             headers.append("X-AW-Nonce", nonce)
             headers.append("X-AW-Signature", signature)
