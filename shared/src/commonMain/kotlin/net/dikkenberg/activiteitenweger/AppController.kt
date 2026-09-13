@@ -196,138 +196,134 @@ class AppController(
         )
     }
 
-    fun renameProfile(vaultId: String, label: String) {
-        val updated = repository.renameSession(vaultId, label)
-        _state.value = _state.value.copy(
-            sessions = _state.value.sessions.map {
-                if (it.vaultId == vaultId) updated else it
-            },
-            message = "Profielnaam gewijzigd",
+    fun renameProfile(vaultId: String, label: String) = launchBusy {
+        val session = _state.value.sessions.first { it.vaultId == vaultId }
+        val updated = repository.updateProfileSettings(
+            session = session,
+            label = label,
         )
+        replaceSession(updated)
+        _state.value = _state.value.copy(message = "Profielnaam gewijzigd")
     }
 
     fun saveCategory(
         categoryId: String?,
         label: String,
         pointsPer30Minutes: Double,
-    ) {
-        runCatching {
-            val session = requireNotNull(_state.value.selectedSession)
-            check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+    ) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
-            val cleanLabel = label.trim()
-            require(cleanLabel.isNotBlank()) { "Vul een categorienaam in" }
-            require(pointsPer30Minutes.isFinite()) { "Vul een geldig puntenaantal in" }
+        val cleanLabel = label.trim()
+        require(cleanLabel.isNotBlank()) { "Vul een categorienaam in" }
+        require(pointsPer30Minutes.isFinite()) { "Vul een geldig puntenaantal in" }
 
-            val duplicate = session.categories.any {
-                it.id != categoryId && it.label.equals(cleanLabel, ignoreCase = true)
-            }
-            check(!duplicate) { "Er bestaat al een categorie met deze naam" }
-
-            val updatedCategory = ActivityCategory(
-                id = categoryId ?: "custom-${Uuid.random()}",
-                label = cleanLabel,
-                pointsPer30Minutes = pointsPer30Minutes,
-            )
-            val categories = if (categoryId == null) {
-                session.categories + updatedCategory
-            } else {
-                session.categories.map {
-                    if (it.id == categoryId) updatedCategory else it
-                }
-            }
-            updateSessionCategories(session, categories)
-            _state.value = _state.value.copy(
-                message = if (categoryId == null) "Categorie toegevoegd" else "Categorie gewijzigd",
-                error = null,
-            )
-        }.onFailure { e ->
-            _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
+        val duplicate = session.categories.any {
+            it.id != categoryId && it.label.equals(cleanLabel, ignoreCase = true)
         }
+        check(!duplicate) { "Er bestaat al een categorie met deze naam" }
+
+        val updatedCategory = ActivityCategory(
+            id = categoryId ?: "custom-${Uuid.random()}",
+            label = cleanLabel,
+            pointsPer30Minutes = pointsPer30Minutes,
+        )
+        val categories = if (categoryId == null) {
+            session.categories + updatedCategory
+        } else {
+            session.categories.map {
+                if (it.id == categoryId) updatedCategory else it
+            }
+        }
+
+        val updated = repository.updateProfileSettings(
+            session = session,
+            categories = categories,
+        )
+        replaceSession(updated)
+        _state.value = _state.value.copy(
+            message = if (categoryId == null) "Categorie toegevoegd" else "Categorie gewijzigd",
+        )
     }
 
-    fun deleteCategory(categoryId: String) {
-        runCatching {
-            val session = requireNotNull(_state.value.selectedSession)
-            check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
-            check(session.categories.size > 1) { "Er moet minimaal één categorie overblijven" }
+    fun deleteCategory(categoryId: String) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+        check(session.categories.size > 1) { "Er moet minimaal één categorie overblijven" }
 
-            val categories = session.categories.filterNot { it.id == categoryId }
-            check(categories.size != session.categories.size) { "Categorie niet gevonden" }
-            check(session.activityPresets.none { it.categoryId == categoryId }) {
-                "Deze categorie wordt nog gebruikt door een standaardactiviteit"
-            }
-
-            updateSessionCategories(session, categories)
-            _state.value = _state.value.copy(message = "Categorie verwijderd", error = null)
-        }.onFailure { e ->
-            _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
+        val categories = session.categories.filterNot { it.id == categoryId }
+        check(categories.size != session.categories.size) { "Categorie niet gevonden" }
+        check(session.activityPresets.none { it.categoryId == categoryId }) {
+            "Deze categorie wordt nog gebruikt door een standaardactiviteit"
         }
+
+        val updated = repository.updateProfileSettings(
+            session = session,
+            categories = categories,
+        )
+        replaceSession(updated)
+        _state.value = _state.value.copy(message = "Categorie verwijderd")
     }
 
     fun saveActivityPreset(
         presetId: String?,
         label: String,
         categoryId: String,
-    ) {
-        runCatching {
-            val session = requireNotNull(_state.value.selectedSession)
-            check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+    ) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
-            val cleanLabel = label.trim()
-            require(cleanLabel.isNotBlank()) { "Vul een naam voor de standaardactiviteit in" }
-            check(session.categories.any { it.id == categoryId }) { "Kies een geldige categorie" }
+        val cleanLabel = label.trim()
+        require(cleanLabel.isNotBlank()) { "Vul een naam voor de standaardactiviteit in" }
+        check(session.categories.any { it.id == categoryId }) { "Kies een geldige categorie" }
 
-            val duplicate = session.activityPresets.any {
-                it.id != presetId && it.label.equals(cleanLabel, ignoreCase = true)
-            }
-            check(!duplicate) { "Er bestaat al een standaardactiviteit met deze naam" }
-
-            val updatedPreset = ActivityPreset(
-                id = presetId ?: "preset-${Uuid.random()}",
-                label = cleanLabel,
-                categoryId = categoryId,
-            )
-            val presets = if (presetId == null) {
-                session.activityPresets + updatedPreset
-            } else {
-                session.activityPresets.map {
-                    if (it.id == presetId) updatedPreset else it
-                }
-            }
-
-            updateSessionActivityPresets(session, presets)
-            _state.value = _state.value.copy(
-                message = if (presetId == null) {
-                    "Standaardactiviteit toegevoegd"
-                } else {
-                    "Standaardactiviteit gewijzigd"
-                },
-                error = null,
-            )
-        }.onFailure { e ->
-            _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
+        val duplicate = session.activityPresets.any {
+            it.id != presetId && it.label.equals(cleanLabel, ignoreCase = true)
         }
+        check(!duplicate) { "Er bestaat al een standaardactiviteit met deze naam" }
+
+        val updatedPreset = ActivityPreset(
+            id = presetId ?: "preset-${Uuid.random()}",
+            label = cleanLabel,
+            categoryId = categoryId,
+        )
+        val presets = if (presetId == null) {
+            session.activityPresets + updatedPreset
+        } else {
+            session.activityPresets.map {
+                if (it.id == presetId) updatedPreset else it
+            }
+        }
+
+        val updated = repository.updateProfileSettings(
+            session = session,
+            activityPresets = presets,
+        )
+        replaceSession(updated)
+        _state.value = _state.value.copy(
+            message = if (presetId == null) {
+                "Standaardactiviteit toegevoegd"
+            } else {
+                "Standaardactiviteit gewijzigd"
+            },
+        )
     }
 
-    fun deleteActivityPreset(presetId: String) {
-        runCatching {
-            val session = requireNotNull(_state.value.selectedSession)
-            check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+    fun deleteActivityPreset(presetId: String) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
-            val presets = session.activityPresets.filterNot { it.id == presetId }
-            check(presets.size != session.activityPresets.size) {
-                "Standaardactiviteit niet gevonden"
-            }
-
-            updateSessionActivityPresets(session, presets)
-            _state.value = _state.value.copy(
-                message = "Standaardactiviteit verwijderd",
-                error = null,
-            )
-        }.onFailure { e ->
-            _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
+        val presets = session.activityPresets.filterNot { it.id == presetId }
+        check(presets.size != session.activityPresets.size) {
+            "Standaardactiviteit niet gevonden"
         }
+
+        val updated = repository.updateProfileSettings(
+            session = session,
+            activityPresets = presets,
+        )
+        replaceSession(updated)
+        _state.value = _state.value.copy(message = "Standaardactiviteit verwijderd")
     }
 
     fun deleteActivity(item: ActivityItem) = launchBusy {
@@ -455,23 +451,7 @@ class AppController(
         _state.value = _state.value.copy(message = null, error = null)
     }
 
-    private fun updateSessionCategories(
-        session: VaultSession,
-        categories: List<ActivityCategory>,
-    ) {
-        val updated = repository.updateCategories(session.vaultId, categories)
-        _state.value = _state.value.copy(
-            sessions = _state.value.sessions.map {
-                if (it.vaultId == updated.vaultId) updated else it
-            },
-        )
-    }
-
-    private fun updateSessionActivityPresets(
-        session: VaultSession,
-        presets: List<ActivityPreset>,
-    ) {
-        val updated = repository.updateActivityPresets(session.vaultId, presets)
+    private fun replaceSession(updated: VaultSession) {
         _state.value = _state.value.copy(
             sessions = _state.value.sessions.map {
                 if (it.vaultId == updated.vaultId) updated else it
