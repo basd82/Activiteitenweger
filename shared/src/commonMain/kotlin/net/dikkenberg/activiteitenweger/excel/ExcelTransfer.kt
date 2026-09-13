@@ -63,7 +63,10 @@ object ExcelTransfer {
         "december",
     )
 
-    fun exportWorkbook(activities: List<ActivityItem>): ByteArray {
+    fun exportWorkbook(
+        activities: List<ActivityItem>,
+        categories: List<ActivityCategory> = ActivityCategory.defaults,
+    ): ByteArray {
         val excel = Excel.createExcel()
         val timeZone = TimeZone.currentSystemDefault()
         val ordered = activities.sortedBy { it.payload.startedAt }
@@ -73,7 +76,7 @@ object ExcelTransfer {
 
         if (grouped.isEmpty()) {
             excel.rename("Sheet1", "Instellingen")
-            writeSettings(excel["Instellingen"])
+            writeSettings(excel["Instellingen"], categories)
             excel.setDefaultSheet("Instellingen")
             return requireNotNull(excel.encode()) { "Excel-bestand kon niet worden gemaakt" }
         }
@@ -87,15 +90,19 @@ object ExcelTransfer {
             val items = entry.value
             val name = sheetName(date)
             val sheet = if (index == 0) excel[firstSheetName] else excel[name]
-            writeDaySheet(sheet, items, timeZone)
+            writeDaySheet(sheet, items, timeZone, categories)
         }
 
-        writeSettings(excel["Instellingen"])
+        writeSettings(excel["Instellingen"], categories)
         excel.setDefaultSheet(firstSheetName)
         return requireNotNull(excel.encode()) { "Excel-bestand kon niet worden gemaakt" }
     }
 
-    fun importWorkbook(bytes: ByteArray, fallbackYear: Int): ExcelImportResult {
+    fun importWorkbook(
+        bytes: ByteArray,
+        fallbackYear: Int,
+        categories: List<ActivityCategory> = ActivityCategory.defaults,
+    ): ExcelImportResult {
         require(fallbackYear in 1900..2200) { "Ongeldig jaartal: $fallbackYear" }
 
         val excel = Excel.decodeBytes(bytes)
@@ -134,6 +141,7 @@ object ExcelTransfer {
                     endColumn = endColumn,
                     descriptionColumn = descriptionColumn,
                     categoryColumn = categoryColumn,
+                    categories = categories,
                     destination = imported,
                 )
                 continue
@@ -142,7 +150,7 @@ object ExcelTransfer {
             val timeColumn = findHeaderColumn(headerValues, "tijdstip")
             val legacyDescriptionColumn = findHeaderColumn(headerValues, "activiteit")
             val legacyCategoryColumns = headerValues.mapIndexedNotNull { index, value ->
-                categoryFromText(cellText(value))?.let { category -> index to category }
+                categoryFromText(cellText(value), categories)?.let { category -> index to category }
             }
 
             if (
@@ -178,6 +186,7 @@ object ExcelTransfer {
         endColumn: Int,
         descriptionColumn: Int,
         categoryColumn: Int,
+        categories: List<ActivityCategory>,
         destination: MutableList<ExcelImportedActivity>,
     ): Int {
         var skippedRows = 0
@@ -199,7 +208,7 @@ object ExcelTransfer {
                 cellText(endValue).isNotBlank()
             if (!hasAnyInput) continue
 
-            val category = categoryFromText(categoryText)
+            val category = categoryFromText(categoryText, categories)
             if (description.isBlank() || category == null || startTime == null || endTime == null) {
                 skippedRows++
                 continue
@@ -305,6 +314,7 @@ object ExcelTransfer {
         sheet: com.gyanoba.kexcel.sheet.Sheet,
         items: List<ActivityItem>,
         timeZone: TimeZone,
+        categories: List<ActivityCategory>,
     ) {
         val headerStyle = CellStyle(bold = true)
         headers.forEachIndexed { column, header ->
@@ -350,10 +360,11 @@ object ExcelTransfer {
                 TextCellValue(item.payload.category.label),
             )
             if (end != null) {
+                val settingsEndRow = categories.size + 1
                 sheet.updateCell(
                     CellIndex.indexByColumnRow(5, rowIndex),
                     FormulaCellValue(
-                        "=IF(OR(D$excelRow=\"\",D$excelRow<=0,E$excelRow=\"\"),\"\",D$excelRow/30*VLOOKUP(E$excelRow,'Instellingen'!\$A\$2:\$B\$5,2,FALSE))"
+                        "=IF(OR(D$excelRow=\"\",D$excelRow<=0,E$excelRow=\"\"),\"\",D$excelRow/30*VLOOKUP(E$excelRow,'Instellingen'!\$A\$2:\$B\$settingsEndRow,2,FALSE))"
                     ),
                 )
                 sheet.updateCell(
@@ -372,12 +383,15 @@ object ExcelTransfer {
         sheet.setColumnWidth(6, 15.0)
     }
 
-    private fun writeSettings(sheet: com.gyanoba.kexcel.sheet.Sheet) {
+    private fun writeSettings(
+        sheet: com.gyanoba.kexcel.sheet.Sheet,
+        categories: List<ActivityCategory>,
+    ) {
         val headerStyle = CellStyle(bold = true)
         sheet.updateCell(CellIndex.indexByString("A1"), TextCellValue("Categorie"), headerStyle)
         sheet.updateCell(CellIndex.indexByString("B1"), TextCellValue("Punten per 30 min"), headerStyle)
 
-        ActivityCategory.entries.forEachIndexed { index, category ->
+        categories.forEachIndexed { index, category ->
             val row = index + 1
             sheet.updateCell(
                 CellIndex.indexByColumnRow(0, row),
@@ -442,10 +456,13 @@ object ExcelTransfer {
     private fun normalizeHeader(value: String): String =
         value.trim().lowercase().replace(" ", "")
 
-    private fun categoryFromText(value: String): ActivityCategory? {
+    private fun categoryFromText(
+        value: String,
+        categories: List<ActivityCategory>,
+    ): ActivityCategory? {
         val normalized = value.trim().lowercase()
-        return ActivityCategory.entries.firstOrNull {
-            it.label.lowercase() == normalized || it.name.lowercase() == normalized
+        return categories.firstOrNull {
+            it.label.lowercase() == normalized || it.id.lowercase() == normalized
         }
     }
 
