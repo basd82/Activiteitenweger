@@ -653,6 +653,12 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
     val effectiveSelectedDate = selectedDate
         ?.takeIf { selected -> groups.any { it.key == selected } }
     val historyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val selectedGroup = groups.firstOrNull { it.key == effectiveSelectedDate }
+    val historyItemCount =
+        1 +
+            (if (groups.isEmpty()) 1 else 0) +
+            groups.size +
+            (selectedGroup?.let { 2 + it.value.size } ?: 0)
 
     Box(Modifier.fillMaxSize()) {
         androidx.compose.foundation.lazy.LazyColumn(
@@ -738,9 +744,11 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
             }
         }
 
+        }
+
         LazyListScrollButtons(
             state = historyListState,
-            itemCount = groups.size,
+            itemCount = historyItemCount,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
@@ -1001,6 +1009,8 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
             }
         }
 
+        }
+
         ScrollStateButtons(
             state = settingsScrollState,
             modifier = Modifier
@@ -1211,44 +1221,46 @@ private fun LazyListScrollButtons(
     vertical: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
-    val content = @Composable {
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    state.animateScrollToItem(0)
-                }
-            },
-            enabled = itemCount > 0 && state.canScrollBackward,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-        ) {
-            Text("↑")
-        }
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    state.animateScrollToItem((itemCount - 1).coerceAtLeast(0))
-                }
-            },
-            enabled = itemCount > 0 && state.canScrollForward,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-        ) {
-            Text("↓")
-        }
-    }
 
     if (vertical) {
         Column(
             modifier = modifier,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            content()
+            ScrollUpButton(
+                enabled = itemCount > 0 && state.canScrollBackward,
+                onClick = {
+                    scope.launch { state.animateScrollToItem(0) }
+                },
+            )
+            ScrollDownButton(
+                enabled = itemCount > 0 && state.canScrollForward,
+                onClick = {
+                    scope.launch {
+                        state.animateScrollToItem((itemCount - 1).coerceAtLeast(0))
+                    }
+                },
+            )
         }
     } else {
         Row(
             modifier = modifier,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            content()
+            ScrollUpButton(
+                enabled = itemCount > 0 && state.canScrollBackward,
+                onClick = {
+                    scope.launch { state.animateScrollToItem(0) }
+                },
+            )
+            ScrollDownButton(
+                enabled = itemCount > 0 && state.canScrollForward,
+                onClick = {
+                    scope.launch {
+                        state.animateScrollToItem((itemCount - 1).coerceAtLeast(0))
+                    }
+                },
+            )
         }
     }
 }
@@ -1263,28 +1275,46 @@ private fun ScrollStateButtons(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        OutlinedButton(
-            onClick = {
-                scope.launch {
-                    state.animateScrollTo(0)
-                }
-            },
+        ScrollUpButton(
             enabled = state.value > 0,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-        ) {
-            Text("↑")
-        }
-        OutlinedButton(
             onClick = {
-                scope.launch {
-                    state.animateScrollTo(state.maxValue)
-                }
+                scope.launch { state.animateScrollTo(0) }
             },
+        )
+        ScrollDownButton(
             enabled = state.value < state.maxValue,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-        ) {
-            Text("↓")
-        }
+            onClick = {
+                scope.launch { state.animateScrollTo(state.maxValue) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ScrollUpButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text("↑")
+    }
+}
+
+@Composable
+private fun ScrollDownButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Text("↓")
     }
 }
 
