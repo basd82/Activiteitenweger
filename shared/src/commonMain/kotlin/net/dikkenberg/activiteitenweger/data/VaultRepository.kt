@@ -3,23 +3,32 @@
 
 package net.dikkenberg.activiteitenweger.data
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import net.dikkenberg.activiteitenweger.crypto.CryptoService
 import net.dikkenberg.activiteitenweger.crypto.fromBase64Url
+import net.dikkenberg.activiteitenweger.crypto.fromHexFlexible
+import net.dikkenberg.activiteitenweger.crypto.groupedPairingCode
 import net.dikkenberg.activiteitenweger.crypto.hexLower
+import net.dikkenberg.activiteitenweger.crypto.hexUpper
 import net.dikkenberg.activiteitenweger.crypto.toBase64Url
 import net.dikkenberg.activiteitenweger.model.AccessMode
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
+import net.dikkenberg.activiteitenweger.model.ActivityConflictSnapshot
 import net.dikkenberg.activiteitenweger.model.ActivityItem
 import net.dikkenberg.activiteitenweger.model.ActivityPreset
 import net.dikkenberg.activiteitenweger.model.ActivityRecordPayload
+import net.dikkenberg.activiteitenweger.model.DeviceInfo
+import net.dikkenberg.activiteitenweger.model.PairingInvitation
 import net.dikkenberg.activiteitenweger.model.ProfileSettingsPayload
 import net.dikkenberg.activiteitenweger.model.SyncStatus
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
 import net.dikkenberg.activiteitenweger.network.ApiException
+import net.dikkenberg.activiteitenweger.network.ClaimPairingRequest
+import net.dikkenberg.activiteitenweger.network.CreatePairingInviteRequest
 import net.dikkenberg.activiteitenweger.network.CreateVaultRequest
 import net.dikkenberg.activiteitenweger.network.RemoteRecord
 import net.dikkenberg.activiteitenweger.network.UpsertRecordRequest
@@ -81,6 +90,207 @@ class VaultRepository(
         )
         sessions.save(session)
         return updateProfileSettings(session)
+    }
+
+    suspend fun createPairingInvitation(
+        session: VaultSession,
+        access: AccessMode,
+        expiresInSeconds: Int = 600,
+    ): PairingInvitation {
+        check(session.owner) { "Alleen de eigenaar kan een apparaat koppelen" }
+        check(session.access == AccessMode.RW) { "Schrijfrechten zijn vereist" }
+
+        val inviteId = Uuid.random().toString()
+        val secret = crypto.randomBytes(16)
+        val verificationHash = crypto.sha256(
+            "AW-PAIRING-VERIFY-V1\\n".encodeToByteArray() + secret
+        )
+        val wrappingKey = crypto.sha256(
+            "AW-PAIRING-WRAP-V1\\n".encodeToByteArray() + secret
+        )
+        val nonce = crypto.randomBytes(24)
+        val packagePayload = PairingKeyPackage(
+            vaultId = session.vaultId,
+            vaultKey = session.vaultKey,
+            label = session.label,
+            keyEpoch = session.keyEpoch,
+        )
+        val ciphertext = crypto.xChaCha20Poly1305Encrypt(
+            key = wrappingKey,
+            nonce24 = nonce,
+            plaintext = json.encodeToString(packagePayload).encodeToByteArray(),
+            associatedData = pairingAssociatedData(inviteId, session.vaultId, access),
+        )
+
+        val response = api.createPairingInvite(
+            session,
+            CreatePairingInviteRequest(
+                inviteId = inviteId,
+                access = access,
+                pairingSecretHash = verificationHash.toBase64Url(),
+                keyPackageCiphertext = ciphertext.toBase64Url(),
+                keyPackageNonce = nonce.toBase64Url(),
+                expiresInSeconds = expiresInSeconds,
+            ),
+        )
+
+        val compactCode = secret.hexUpper()
+        return PairingInvitation(
+            inviteId = response.inviteId,
+            code = compactCode.groupedPairingCode(),
+            qrPayload = "AWPAIR1:$compactCode",
+            access = response.access,
+            expiresInSeconds = response.expiresInSeconds,
+        )
+    }
+
+    suspend fun claimPairing(codeOrQr: String): VaultSession {
+        val compact = codeOrQr.trim()
+            .removePrefix("AWPAIR1:")
+            .removePrefix("awpair1:")
+            .filter(Char::isLetterOrDigit)
+        val secret = compact.fromHexFlexible()
+        require(secret.size == 16) { "Ongeldige koppelcode" }
+
+        val signing = crypto.generateEd25519KeyPair()
+        val encryption = crypto.generateX25519KeyPair()
+        val deviceId = Uuid.random().toString()
+
+        val response = api.claimPairing(
+            ClaimPairingRequest(
+                pairingSecret = secret.toBase64Url(),
+                deviceId = deviceId,
+                authPublicKey = signing.publicKey.toBase64Url(),
+                encryptionPublicKey = encryption.publicKey.toBase64Url(),
+            )
+        )
+
+        val wrappingKey = crypto.sha256(
+            "AW-PAIRING-WRAP-V1\\n".encodeToByteArray() + secret
+        )
+        val plaintext = crypto.xChaCha20Poly1305Decrypt(
+            key = wrappingKey,
+            nonce24 = response.keyPackageNonce.fromBase64Url(),
+            ciphertext = response.keyPackageCiphertext.fromBase64Url(),
+            associatedData = pairingAssociatedData(response.inviteId, response.vaultId, response.access),
+        )
+        val keyPackage = json.decodeFromString<PairingKeyPackage>(plaintext.decodeToString())
+        check(keyPackage.vaultId == response.vaultId) { "Koppelpakket hoort bij een andere vault" }
+        check(keyPackage.keyEpoch == response.keyEpoch) { "Koppelpakket heeft een onjuiste key epoch" }
+
+        val session = VaultSession(
+            vaultId = response.vaultId,
+            deviceId = response.deviceId,
+            label = keyPackage.label.ifBlank { "Gekoppelde Activiteitenweger" },
+            access = response.access,
+            owner = response.owner,
+            keyEpoch = response.keyEpoch,
+            authPrivateKey = signing.privateKey.toBase64Url(),
+            authPublicKey = signing.publicKey.toBase64Url(),
+            encryptionPrivateKey = encryption.privateKey.toBase64Url(),
+            encryptionPublicKey = encryption.publicKey.toBase64Url(),
+            vaultKey = keyPackage.vaultKey,
+            cursor = 0,
+        )
+        sessions.save(session)
+        return session
+    }
+
+    suspend fun devices(session: VaultSession): List<DeviceInfo> =
+        api.devices(session).devices.map {
+            DeviceInfo(
+                deviceId = it.deviceId,
+                access = it.access,
+                owner = it.owner,
+                status = it.status,
+                createdAt = it.createdAt,
+                lastSeenAt = it.lastSeenAt,
+                revokedAt = it.revokedAt,
+            )
+        }
+
+    suspend fun revokeDevice(session: VaultSession, deviceId: String) {
+        check(session.owner) { "Alleen de eigenaar kan toegang intrekken" }
+        api.revokeDevice(session, deviceId)
+    }
+
+    suspend fun selfRevoke(session: VaultSession) {
+        check(!session.owner) { "De eigenaar kan de eigen toegang niet intrekken" }
+        api.selfRevoke(session)
+        localSyncStore.remove(session.vaultId)
+        sessions.remove(session.vaultId)
+    }
+
+    suspend fun revokePairingInvitation(session: VaultSession, inviteId: String) {
+        check(session.owner) { "Alleen de eigenaar kan een koppeling intrekken" }
+        api.revokePairingInvite(session, inviteId)
+    }
+
+    suspend fun conflictSnapshot(session: VaultSession, recordId: String): ActivityConflictSnapshot? {
+        val state = localSyncStore.load(session.vaultId)
+        val pending = state.pending.firstOrNull {
+            it.recordId == recordId && it.state == PendingMutationState.CONFLICT
+        } ?: return null
+        val remote = state.records.firstOrNull { it.recordId == recordId }
+
+        val localPayload = if (!pending.deleted && pending.nonce != null && pending.ciphertext != null) {
+            runCatching { decryptActivity(session, recordId, pending.nonce, pending.ciphertext) }.getOrNull()
+        } else null
+
+        val remotePayload = if (remote != null && !remote.deleted && remote.nonce != null && remote.ciphertext != null) {
+            runCatching { decryptActivity(session, recordId, remote.nonce, remote.ciphertext) }.getOrNull()
+        } else null
+
+        return ActivityConflictSnapshot(
+            recordId = recordId,
+            localRevision = pending.revision,
+            remoteRevision = remote?.revision ?: pending.baseRevision,
+            localPayload = localPayload,
+            remotePayload = remotePayload,
+            localDeleted = pending.deleted,
+            remoteDeleted = remote?.deleted ?: false,
+        )
+    }
+
+    suspend fun resolveConflictUseServer(session: VaultSession, recordId: String): Pair<VaultSession, List<ActivityItem>> {
+        val state = localSyncStore.load(session.vaultId)
+        val conflict = state.pending.firstOrNull {
+            it.recordId == recordId && it.state == PendingMutationState.CONFLICT
+        } ?: error("Synchronisatieconflict niet gevonden")
+        localSyncStore.save(
+            session.vaultId,
+            state.copy(pending = state.pending.filterNot { it.recordId == conflict.recordId }),
+        )
+        return loadCachedActivities(session)
+    }
+
+    suspend fun resolveConflictKeepMine(session: VaultSession, recordId: String): Pair<VaultSession, List<ActivityItem>> {
+        val state = localSyncStore.load(session.vaultId)
+        val conflict = state.pending.firstOrNull {
+            it.recordId == recordId && it.state == PendingMutationState.CONFLICT
+        } ?: error("Synchronisatieconflict niet gevonden")
+        val remote = state.records.firstOrNull { it.recordId == recordId }
+            ?: error("Serverversie niet gevonden")
+
+        val plaintext = if (conflict.deleted) null else decryptPlaintext(
+            session,
+            conflict.recordId,
+            requireNotNull(conflict.nonce),
+            requireNotNull(conflict.ciphertext),
+        )
+
+        localSyncStore.save(
+            session.vaultId,
+            state.copy(pending = state.pending.filterNot { it.recordId == conflict.recordId }),
+        )
+        queueEncryptedMutation(
+            session = session,
+            recordId = conflict.recordId,
+            fallbackBaseRevision = remote.revision,
+            plaintext = plaintext,
+            deleted = conflict.deleted,
+        )
+        return loadCachedActivities(session)
     }
 
     suspend fun loadCachedActivities(
@@ -718,6 +928,21 @@ class VaultRepository(
         )
     }
 
+    private fun pairingAssociatedData(
+        inviteId: String,
+        vaultId: String,
+        access: AccessMode,
+    ): ByteArray =
+        ("AW-PAIRING-V1\\n" + inviteId + "\\n" + vaultId + "\\n" + access.name).encodeToByteArray()
+
+    @Serializable
+    private data class PairingKeyPackage(
+        val schemaVersion: Int = 1,
+        val vaultId: String,
+        val vaultKey: String,
+        val label: String,
+        val keyEpoch: Int,
+    )
     private data class PushResult(
         val session: VaultSession,
         val state: LocalVaultSyncState,
