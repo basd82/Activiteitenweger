@@ -15,6 +15,8 @@
 
 ## App
 
+- persistente versleutelde lokale cache + outbox voor volledig offline registreren;
+- expliciete conflictresolver met keuze tussen lokale en serverversie;
 - QR scanner/generator en OS share sheet (WhatsApp/Telegram/Signal/Mail/etc.);
 - handmatige invoer/correctie van start- en eindtijd;
 - weekgrafieken en dagvergelijking;
