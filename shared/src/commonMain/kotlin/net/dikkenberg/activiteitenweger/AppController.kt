@@ -155,7 +155,9 @@ class AppController(
         if (
             !appInForeground ||
             !_state.value.initialized ||
-            _state.value.selectedSession == null
+            _state.value.selectedSession == null ||
+            _state.value.busy ||
+            _state.value.syncing
         ) return
         scope.launch {
             runSync(
