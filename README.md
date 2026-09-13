@@ -20,6 +20,7 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 - ondersteunt afgeronde activiteiten wijzigen en verwijderen;
 - ondersteunt profielnamen lokaal wijzigen;
 - categorieën en punten per 30 minuten zijn per profiel instelbaar; categorieën kunnen worden toegevoegd, gewijzigd en verwijderd;
+- standaardactiviteiten kunnen per profiel worden toegevoegd, gewijzigd en verwijderd en via een keuzelijst worden gebruikt bij registratie;
 - importeert en exporteert het Activiteitenweger-dagschema als Excel (.xlsx), inclusief oudere dagbladen zonder jaartal;
 - start- en eindtijd worden automatisch vastgelegd;
 - rekent punten proportioneel uit: Ontspanning -1, Licht +1, Gemiddeld +2, Zwaar +3 per 30 minuten;
@@ -29,6 +30,8 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 - adaptive UI voor telefoon, tablet en Chromebook.
 
 ## Nog bewust niet actief
+
+Categorieën en standaardactiviteiten worden nu lokaal per profiel bewaard. Ze moeten vóór multi-device gebruik als end-to-end versleutelde profielinstellingen worden gesynchroniseerd, zodat alle gekoppelde apparaten dezelfde configuratie gebruiken.
 
 Pairing via QR/koppelcode, R/RW grants, self-revoke van een behandelaar, access-events en key rotation zijn in de UI/datamodellen voorbereid maar kunnen nog niet functioneel zijn totdat de server de pairing/device-grant endpoints en de many-to-many `vault_devices` migratie heeft. De app doet hier dus niet alsof het al werkt.
 
