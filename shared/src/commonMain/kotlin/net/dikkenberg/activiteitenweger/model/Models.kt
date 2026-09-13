@@ -12,11 +12,23 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 @Serializable
-enum class ActivityCategory(val label: String, val pointsPer30Minutes: Double) {
-    @SerialName("ontspanning") RELAXATION("Ontspanning", -1.0),
-    @SerialName("licht") LIGHT("Licht", 1.0),
-    @SerialName("gemiddeld") MEDIUM("Gemiddeld", 2.0),
-    @SerialName("zwaar") HEAVY("Zwaar", 3.0),
+data class ActivityCategory(
+    val id: String,
+    val label: String,
+    val pointsPer30Minutes: Double,
+) {
+    companion object {
+        val RELAXATION = ActivityCategory("ontspanning", "Ontspanning", -1.0)
+        val LIGHT = ActivityCategory("licht", "Licht", 1.0)
+        val MEDIUM = ActivityCategory("gemiddeld", "Gemiddeld", 2.0)
+        val HEAVY = ActivityCategory("zwaar", "Zwaar", 3.0)
+
+        val defaults: List<ActivityCategory>
+            get() = listOf(RELAXATION, LIGHT, MEDIUM, HEAVY)
+
+        fun builtInById(id: String): ActivityCategory? =
+            defaults.firstOrNull { it.id.equals(id, ignoreCase = true) }
+    }
 }
 
 @Serializable
@@ -24,13 +36,52 @@ enum class AccessMode { R, RW }
 
 @Serializable
 data class ActivityRecordPayload(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val type: String = "activity",
     val startedAt: String,
     val endedAt: String? = null,
     val description: String,
-    val category: ActivityCategory,
+    @SerialName("category")
+    val categoryId: String,
+    val categoryLabel: String? = null,
+    val categoryPointsPer30Minutes: Double? = null,
 ) {
+    constructor(
+        schemaVersion: Int = 2,
+        type: String = "activity",
+        startedAt: String,
+        endedAt: String? = null,
+        description: String,
+        category: ActivityCategory,
+    ) : this(
+        schemaVersion = schemaVersion,
+        type = type,
+        startedAt = startedAt,
+        endedAt = endedAt,
+        description = description,
+        categoryId = category.id,
+        categoryLabel = category.label,
+        categoryPointsPer30Minutes = category.pointsPer30Minutes,
+    )
+
+    val category: ActivityCategory
+        get() {
+            val builtIn = ActivityCategory.builtInById(categoryId)
+            return ActivityCategory(
+                id = categoryId,
+                label = categoryLabel ?: builtIn?.label ?: categoryId,
+                pointsPer30Minutes = categoryPointsPer30Minutes ?: builtIn?.pointsPer30Minutes ?: 0.0,
+            )
+        }
+
+    fun withCategory(category: ActivityCategory): ActivityRecordPayload =
+        copy(
+            schemaVersion = maxOf(schemaVersion, 2),
+            categoryId = category.id,
+            categoryLabel = category.label,
+            categoryPointsPer30Minutes = category.pointsPer30Minutes,
+        )
+
     fun durationSeconds(now: Instant = Clock.System.now()): Long {
         val start = Instant.parse(startedAt)
         val end = endedAt?.let(Instant::parse) ?: now
@@ -74,6 +125,7 @@ data class VaultSession(
     val encryptionPublicKey: String,
     val vaultKey: String,
     val cursor: Long = 0,
+    val categories: List<ActivityCategory> = ActivityCategory.defaults,
 )
 
 @Serializable
