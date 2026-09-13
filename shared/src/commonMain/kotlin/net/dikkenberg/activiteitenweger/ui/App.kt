@@ -10,7 +10,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import net.dikkenberg.activiteitenweger.AppController
 import net.dikkenberg.activiteitenweger.AppUiState
@@ -348,6 +350,7 @@ private fun StartActivityDialog(onDismiss: () -> Unit, onStart: (String, Activit
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ActivityEditorDialog(
     title: String,
@@ -368,6 +371,11 @@ private fun ActivityEditorDialog(
     var endDate by remember { mutableStateOf(initialEndDate) }
     var endTime by remember { mutableStateOf(initialEndTime) }
 
+    var showStartDatePicker by remember { mutableStateOf(false) }
+    var showStartTimePicker by remember { mutableStateOf(false) }
+    var showEndDatePicker by remember { mutableStateOf(false) }
+    var showEndTimePicker by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -378,45 +386,45 @@ private fun ActivityEditorDialog(
                     onValueChange = { description = it },
                     label = { Text("Activiteit") },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
+
+                Text("Start", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = startDate,
-                        onValueChange = { startDate = it },
-                        label = { Text("Startdatum") },
-                        placeholder = { Text("2026-09-13") },
-                        singleLine = true,
+                    DateTimePickerButton(
+                        label = "Datum",
+                        value = formatIsoDateForDisplay(startDate),
+                        onClick = { showStartDatePicker = true },
                         modifier = Modifier.weight(1f),
                     )
-                    OutlinedTextField(
+                    DateTimePickerButton(
+                        label = "Tijd",
                         value = startTime,
-                        onValueChange = { startTime = it },
-                        label = { Text("Starttijd") },
-                        placeholder = { Text("09:30") },
-                        singleLine = true,
+                        onClick = { showStartTimePicker = true },
                         modifier = Modifier.weight(1f),
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+
+                Spacer(Modifier.height(12.dp))
+                Text("Einde", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = endDate,
-                        onValueChange = { endDate = it },
-                        label = { Text("Einddatum") },
-                        placeholder = { Text("2026-09-13") },
-                        singleLine = true,
+                    DateTimePickerButton(
+                        label = "Datum",
+                        value = formatIsoDateForDisplay(endDate),
+                        onClick = { showEndDatePicker = true },
                         modifier = Modifier.weight(1f),
                     )
-                    OutlinedTextField(
+                    DateTimePickerButton(
+                        label = "Tijd",
                         value = endTime,
-                        onValueChange = { endTime = it },
-                        label = { Text("Eindtijd") },
-                        placeholder = { Text("10:00") },
-                        singleLine = true,
+                        onClick = { showEndTimePicker = true },
                         modifier = Modifier.weight(1f),
                     )
                 }
+
                 Spacer(Modifier.height(12.dp))
                 ActivityCategory.entries.forEach { option ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -434,6 +442,156 @@ private fun ActivityEditorDialog(
             ) { Text(confirmLabel) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annuleer") } },
+    )
+
+    if (showStartDatePicker) {
+        DateChooserDialog(
+            title = "Startdatum",
+            initialDate = startDate,
+            onDismiss = { showStartDatePicker = false },
+            onSelected = {
+                startDate = it
+                showStartDatePicker = false
+            },
+        )
+    }
+
+    if (showStartTimePicker) {
+        TimeChooserDialog(
+            title = "Starttijd",
+            initialTime = startTime,
+            onDismiss = { showStartTimePicker = false },
+            onSelected = {
+                startTime = it
+                showStartTimePicker = false
+            },
+        )
+    }
+
+    if (showEndDatePicker) {
+        DateChooserDialog(
+            title = "Einddatum",
+            initialDate = endDate,
+            onDismiss = { showEndDatePicker = false },
+            onSelected = {
+                endDate = it
+                showEndDatePicker = false
+            },
+        )
+    }
+
+    if (showEndTimePicker) {
+        TimeChooserDialog(
+            title = "Eindtijd",
+            initialTime = endTime,
+            onDismiss = { showEndTimePicker = false },
+            onSelected = {
+                endTime = it
+                showEndTimePicker = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun DateTimePickerButton(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.Start,
+        ) {
+            Text(label, style = MaterialTheme.typography.labelSmall)
+            Text(value, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateChooserDialog(
+    title: String,
+    initialDate: String,
+    onDismiss: () -> Unit,
+    onSelected: (String) -> Unit,
+) {
+    val state = rememberDatePickerState(
+        initialSelectedDateMillis = isoDateToUtcMillis(initialDate),
+    )
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    state.selectedDateMillis?.let { onSelected(utcMillisToIsoDate(it)) }
+                },
+                enabled = state.selectedDateMillis != null,
+            ) { Text("OK") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    ) {
+        DatePicker(
+            state = state,
+            title = {
+                Text(
+                    title,
+                    modifier = Modifier.padding(start = 24.dp, end = 12.dp, top = 16.dp),
+                )
+            },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TimeChooserDialog(
+    title: String,
+    initialTime: String,
+    onDismiss: () -> Unit,
+    onSelected: (String) -> Unit,
+) {
+    val (hour, minute) = parseHourMinute(initialTime)
+    val state = rememberTimePickerState(
+        initialHour = hour,
+        initialMinute = minute,
+        is24Hour = true,
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                TimePicker(state = state)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onSelected(
+                        "${state.hour.toString().padStart(2, '0')}:" +
+                            state.minute.toString().padStart(2, '0')
+                    )
+                }
+            ) { Text("OK") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
     )
 }
 
@@ -703,6 +861,30 @@ private fun timeRange(item: ActivityItem): String {
     val start = formatLocalTime(item.payload.startedAt)
     val end = item.payload.endedAt?.let(::formatLocalTime)
     return if (end == null) "Vanaf $start" else "$start – $end"
+}
+
+private fun formatIsoDateForDisplay(value: String): String {
+    val date = LocalDate.parse(value)
+    return "${date.day.toString().padStart(2, '0')}-" +
+        "${date.month.number.toString().padStart(2, '0')}-${date.year}"
+}
+
+private fun isoDateToUtcMillis(value: String): Long =
+    LocalDate.parse(value)
+        .atStartOfDayIn(TimeZone.UTC)
+        .toEpochMilliseconds()
+
+private fun utcMillisToIsoDate(value: Long): String =
+    kotlin.time.Instant.fromEpochMilliseconds(value)
+        .toLocalDateTime(TimeZone.UTC)
+        .date
+        .toString()
+
+private fun parseHourMinute(value: String): Pair<Int, Int> {
+    val parts = value.split(":")
+    val hour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: 0
+    val minute = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+    return hour to minute
 }
 
 private fun formatLocalDate(value: String): String =
