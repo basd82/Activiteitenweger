@@ -42,6 +42,15 @@ fun ActiviteitenwegerApp(controller: AppController = remember { AppController() 
 
     LaunchedEffect(Unit) { controller.initialize() }
 
+    LaunchedEffect(state.initialized, state.selectedVaultId) {
+        if (state.initialized && state.selectedVaultId != null) {
+            while (true) {
+                delay(30_000)
+                controller.syncCurrentSilently()
+            }
+        }
+    }
+
     MaterialTheme {
         Surface(Modifier.fillMaxSize()) {
             when {
@@ -951,8 +960,18 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         ) {
         Text("Instellingen", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
-        Text("Server: ${state.health}")
+        Text(
+            buildString {
+                append("Server: ").append(state.health)
+                state.serverVersion?.let { append(" · versie ").append(it) }
+            }
+        )
         Text("https://app.dikkenberg.net")
+        when {
+            state.syncing -> Text("Synchronisatie: bezig…")
+            state.lastSyncAt != null -> Text("Laatste synchronisatie: ${formatLocalTime(state.lastSyncAt)}")
+            else -> Text("Laatste synchronisatie: nog niet")
+        }
         Spacer(Modifier.height(16.dp))
         Text("App", style = MaterialTheme.typography.titleMedium)
         Text("Versie ${appVersionName()} (build ${appBuildNumber()})")
