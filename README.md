@@ -19,6 +19,7 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 - ondersteunt handmatig activiteiten invoeren met start- en einddatum/tijd;
 - ondersteunt afgeronde activiteiten wijzigen en verwijderen;
 - ondersteunt profielnamen lokaal wijzigen;
+- categorieën en punten per 30 minuten zijn per profiel instelbaar; categorieën kunnen worden toegevoegd, gewijzigd en verwijderd;
 - importeert en exporteert het Activiteitenweger-dagschema als Excel (.xlsx), inclusief oudere dagbladen zonder jaartal;
 - start- en eindtijd worden automatisch vastgelegd;
 - rekent punten proportioneel uit: Ontspanning -1, Licht +1, Gemiddeld +2, Zwaar +3 per 30 minuten;
