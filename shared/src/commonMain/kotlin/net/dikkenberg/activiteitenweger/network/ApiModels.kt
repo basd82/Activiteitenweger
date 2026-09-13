@@ -89,6 +89,7 @@ data class ClaimPairingRequest(
 @Serializable
 data class ClaimPairingResponse(
     val status: String,
+    val inviteId: String,
     val vaultId: String,
     val deviceId: String,
     val access: AccessMode,
