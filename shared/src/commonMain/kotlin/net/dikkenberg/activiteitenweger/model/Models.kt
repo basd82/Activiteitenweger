@@ -39,6 +39,16 @@ data class ActivityPreset(
 )
 
 @Serializable
+data class ProfileSettingsPayload(
+    val schemaVersion: Int = 1,
+    val type: String = "profile_settings",
+    val label: String,
+    val categories: List<ActivityCategory> = ActivityCategory.defaults,
+    val activityPresets: List<ActivityPreset> = emptyList(),
+    val settingsRevision: Long = 0,
+)
+
+@Serializable
 enum class AccessMode { R, RW }
 
 @Serializable
