@@ -10,6 +10,8 @@ serialization = "1.11.0"
 datetime = "0.8.0"
 cryptography = "0.6.0"
 kvault = "1.12.0"
+kexcel = "0.1.1"
+filekit = "0.14.2"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -31,6 +33,9 @@ cryptography-core = { module = "dev.whyoleg.cryptography:cryptography-core", ver
 cryptography-provider-optimal = { module = "dev.whyoleg.cryptography:cryptography-provider-optimal", version.ref = "cryptography" }
 cryptography-random = { module = "dev.whyoleg.cryptography:cryptography-random", version.ref = "cryptography" }
 kvault = { module = "com.liftric:kvault", version.ref = "kvault" }
+kexcel = { module = "com.gyanoba.kexcel:kexcel", version.ref = "kexcel" }
+filekit-core = { module = "io.github.vinceglb:filekit-core", version.ref = "filekit" }
+filekit-dialogs = { module = "io.github.vinceglb:filekit-dialogs", version.ref = "filekit" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
