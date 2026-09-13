@@ -59,3 +59,8 @@ Dit sluit aan bij de 24-byte nonce van de huidige PHP/libsodium smoke-test.
 - signed grants / publieke writer keys voor sterkere cross-device auditability;
 - rate limiting, push privacy en audit event retention;
 - externe security review/pentest.
+
+
+## Profielinstellingen
+
+Profielnaam, categorieën, puntwaardes en standaardactiviteiten worden niet als plaintext metadata naar de API gestuurd. Ze worden als een regulier vault-record end-to-end versleuteld met de VaultKey en alleen als ciphertext opgeslagen en gesynchroniseerd.
