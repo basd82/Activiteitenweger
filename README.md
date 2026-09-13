@@ -2,6 +2,11 @@
 
 Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-telefoon, Android-tablet en Chromebook.
 
+## Repositories
+
+- **App:** [basd82/Activiteitenweger](https://github.com/basd82/Activiteitenweger)
+- **API:** [basd82/Activiteitenweger-api](https://github.com/basd82/Activiteitenweger-api)
+
 ## Wat deze eerste complete projectbasis al doet
 
 - maakt een nieuwe end-to-end versleutelde vault via `https://app.dikkenberg.net/api/v1`;
@@ -86,3 +91,14 @@ Zie ook `SECURITY.md` en `ROADMAP.md`.
 ## Juridisch/medisch
 
 De app is een registratie- en inzichtshulpmiddel. Scores zijn geen medische beoordeling en de app vervangt geen advies, diagnose, behandeling of begeleiding door een gekwalificeerde professional.
+
+
+## Auteursrecht en licentie
+
+Copyright © 2026 Bas van den Dikkenberg.
+
+Activiteitenweger is vrije/open-sourcesoftware en wordt uitgebracht onder de **GNU General Public License versie 3.0 (GPL-3.0-only)**.
+
+Je mag de software gebruiken, bestuderen, wijzigen en verspreiden onder de voorwaarden van GPLv3. Er wordt geen garantie gegeven, voor zover wettelijk toegestaan.
+
+Zie [LICENSE](LICENSE) voor de volledige licentietekst.
