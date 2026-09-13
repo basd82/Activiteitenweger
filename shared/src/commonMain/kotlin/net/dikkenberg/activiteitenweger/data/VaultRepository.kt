@@ -96,13 +96,28 @@ class VaultRepository(
         session: VaultSession,
         description: String,
         category: ActivityCategory,
+    ): ActivityItem = createActivity(
+        session = session,
+        description = description,
+        category = category,
+        startedAt = Clock.System.now().toString(),
+        endedAt = null,
+    )
+
+    suspend fun createActivity(
+        session: VaultSession,
+        description: String,
+        category: ActivityCategory,
+        startedAt: String,
+        endedAt: String?,
     ): ActivityItem {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
         val item = ActivityItem(
             recordId = Uuid.random().toString(),
             revision = 1,
             payload = ActivityRecordPayload(
-                startedAt = Clock.System.now().toString(),
+                startedAt = startedAt,
+                endedAt = endedAt,
                 description = description.trim().ifBlank { "Activiteit" },
                 category = category,
             ),
@@ -131,6 +146,13 @@ class VaultRepository(
     suspend fun deleteActivity(session: VaultSession, item: ActivityItem) {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
         put(session, item.copy(revision = item.revision + 1), deleted = true)
+    }
+
+    fun renameSession(vaultId: String, label: String): VaultSession {
+        val current = sessions.list().first { it.vaultId == vaultId }
+        val updated = current.copy(label = label.trim().ifBlank { "Mijn Activiteitenweger" })
+        sessions.save(updated)
+        return updated
     }
 
     suspend fun deleteVault(session: VaultSession) {
