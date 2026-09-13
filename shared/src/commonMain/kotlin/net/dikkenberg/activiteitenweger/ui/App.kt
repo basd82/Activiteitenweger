@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
@@ -176,9 +177,13 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
     var showManual by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<ActivityItem?>(null) }
     val now = rememberTicker()
+    val todayKey = localToday()
     val completed = state.activities.filter { it.payload.endedAt != null }
-    val today = completed.filter { it.payload.localDate() == localToday() }
+    val today = completed.filter { it.payload.localDate() == todayKey }
+    val todayActivities = state.activities.filter { it.payload.localDate() == todayKey }
     val score = today.sumOf { it.payload.points() }
+    val activityListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scrollScope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text(state.selectedSession?.label ?: "Vandaag", style = MaterialTheme.typography.headlineMedium)
@@ -230,19 +235,60 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
         }
 
         Spacer(Modifier.height(16.dp))
-        Text("Activiteiten", style = MaterialTheme.typography.titleMedium)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Activiteiten vandaag", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        scrollScope.launch {
+                            activityListState.animateScrollToItem(0)
+                        }
+                    },
+                    enabled = todayActivities.isNotEmpty() && activityListState.canScrollBackward,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    Text("↑")
+                }
+                OutlinedButton(
+                    onClick = {
+                        scrollScope.launch {
+                            activityListState.animateScrollToItem(todayActivities.lastIndex)
+                        }
+                    },
+                    enabled = todayActivities.isNotEmpty() && activityListState.canScrollForward,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    Text("↓")
+                }
+            }
+        }
         Spacer(Modifier.height(8.dp))
-        androidx.compose.foundation.lazy.LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.activities.size) { index ->
-                val item = state.activities[index]
-                ActivityCard(
-                    item = item,
-                    now = now,
-                    canEdit = state.canWrite && item.payload.endedAt != null,
-                    canDelete = state.canWrite && item.payload.endedAt != null,
-                    onEdit = { editingItem = item },
-                    onDelete = { controller.deleteActivity(item) },
-                )
+        if (todayActivities.isEmpty()) {
+            Text(
+                "Vandaag zijn nog geen activiteiten geregistreerd.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        } else {
+            androidx.compose.foundation.lazy.LazyColumn(
+                state = activityListState,
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(todayActivities.size) { index ->
+                    val item = todayActivities[index]
+                    ActivityCard(
+                        item = item,
+                        now = now,
+                        canEdit = state.canWrite && item.payload.endedAt != null,
+                        canDelete = state.canWrite && item.payload.endedAt != null,
+                        onEdit = { editingItem = item },
+                        onDelete = { controller.deleteActivity(item) },
+                    )
+                }
             }
         }
     }
