@@ -3,6 +3,7 @@
 
 package net.dikkenberg.activiteitenweger.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -19,13 +20,19 @@ import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import net.dikkenberg.activiteitenweger.AppController
 import net.dikkenberg.activiteitenweger.AppUiState
+import io.github.alexzhirkevich.qrose.rememberQrCodePainter
+import net.dikkenberg.activiteitenweger.model.AccessMode
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
 import net.dikkenberg.activiteitenweger.model.ActivityPreset
 import net.dikkenberg.activiteitenweger.model.SyncStatus
+import net.dikkenberg.activiteitenweger.platform.CameraPermissionGate
 import net.dikkenberg.activiteitenweger.platform.appBuildNumber
 import net.dikkenberg.activiteitenweger.platform.appVersionName
 import kotlin.math.abs
+import org.ncgroup.kscan.BarcodeFormat
+import org.ncgroup.kscan.BarcodeResult
+import org.ncgroup.kscan.ScannerView
 import kotlin.time.Clock
 
 private enum class Destination(val label: String) {
@@ -135,7 +142,7 @@ private fun Content(
             Destination.TODAY -> TodayScreen(state, controller)
             Destination.HISTORY -> HistoryScreen(state, controller)
             Destination.CLIENTS -> ProfilesScreen(state, controller)
-            Destination.SHARE -> ShareScreen(state)
+            Destination.SHARE -> ShareScreen(state, controller)
             Destination.SETTINGS -> SettingsScreen(state, controller)
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
