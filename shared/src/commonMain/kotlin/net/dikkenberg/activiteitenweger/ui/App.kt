@@ -127,6 +127,13 @@ private fun AdaptiveShell(
         }
     }
 
+    state.conflictSnapshot?.let { conflict ->
+        ConflictResolverDialog(
+            conflict = conflict,
+            onUseMine = controller::resolveConflictKeepMine,
+            onUseServer = controller::resolveConflictUseServer,
+        )
+    }
     state.error?.let { MessageDialog("Fout", it, controller::clearNotice) }
     state.message?.let { MessageDialog("Activiteitenweger", it, controller::clearNotice) }
 }
@@ -965,27 +972,181 @@ private fun ProfilesScreen(state: AppUiState, controller: AppController) {
 }
 
 @Composable
-private fun ShareScreen(state: AppUiState) {
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+private fun ShareScreen(state: AppUiState, controller: AppController) {
+    val session = state.selectedSession
+    var showJoin by remember { mutableStateOf(false) }
+    var revokeDeviceId by remember { mutableStateOf<String?>(null) }
+    var confirmSelfRevoke by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(state.selectedVaultId, session?.access) {
+        if (session != null && session.access == AccessMode.RW) {
+            controller.refreshDevices()
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         Text("Delen en koppelen", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(12.dp))
+
+        if (session == null) {
+            Text("Kies eerst een profiel.")
+            return@Column
+        }
+
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("R — Alleen lezen", style = MaterialTheme.typography.titleMedium)
-                Text("Voor bijvoorbeeld een behandelaar die gegevens mag bekijken maar niet wijzigen.")
-                Spacer(Modifier.height(12.dp))
-                Text("RW — Lezen en schrijven", style = MaterialTheme.typography.titleMedium)
-                Text("Voor een eigen extra apparaat of iemand die ook registraties mag aanpassen.")
+                Text("Toegang delen", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Text("R — alleen lezen: geschikt voor iemand die activiteiten alleen hoeft te bekijken.")
+                Text("RW — lezen en schrijven: geschikt voor een eigen extra apparaat of iemand die ook mag registreren en wijzigen.")
+                if (session.owner) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { controller.createPairingInvitation(AccessMode.R) },
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Koppel apparaat met R-toegang") }
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = { controller.createPairingInvitation(AccessMode.RW) },
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Koppel apparaat met RW-toegang") }
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Alleen de eigenaar van dit profiel kan nieuwe apparaten koppelen.")
+                }
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "De app-architectuur is voorbereid op QR/koppelcode en meerdere cliënten. " +
-                "De huidige server-API heeft nog geen pairing-relay/device-grant endpoints; daarom is koppelen in deze build bewust nog niet activeerbaar.",
-            style = MaterialTheme.typography.bodyLarge,
+
+        OutlinedButton(
+            onClick = { showJoin = true },
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Bestaand profiel aan deze app koppelen")
+        }
+
+        if (session.access == AccessMode.RW) {
+            HorizontalDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Apparaten", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = controller::refreshDevices, enabled = !state.busy) {
+                    Text("Vernieuwen")
+                }
+            }
+
+            if (state.devices.isEmpty()) {
+                Text("Nog geen apparatenlijst geladen.")
+            } else {
+                state.devices.forEach { device ->
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        when {
+                                            device.deviceId == session.deviceId -> "Dit apparaat"
+                                            device.owner -> "Eigenaar"
+                                            else -> "Gekoppeld apparaat"
+                                        },
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text("Toegang: ${device.access.name}")
+                                    Text("Status: ${device.status}", style = MaterialTheme.typography.bodySmall)
+                                    device.lastSeenAt?.let {
+                                        Text("Laatst actief: ${formatLocalTime(it)}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                if (
+                                    session.owner &&
+                                    !device.owner &&
+                                    device.status == "ACTIVE" &&
+                                    device.deviceId != session.deviceId
+                                ) {
+                                    TextButton(onClick = { revokeDeviceId = device.deviceId }) {
+                                        Text("Intrekken")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!session.owner) {
+            HorizontalDivider()
+            OutlinedButton(
+                onClick = { confirmSelfRevoke = true },
+                enabled = !state.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Dit apparaat loskoppelen van profiel")
+            }
+        }
+
+        Text("Vault: ${session.vaultId}", style = MaterialTheme.typography.bodySmall)
+    }
+
+    state.pairingInvitation?.let { invitation ->
+        PairingInvitationDialog(
+            invitation = invitation,
+            onClose = controller::clearPairingInvitation,
+            onRevoke = controller::revokePairingInvitation,
         )
-        Spacer(Modifier.height(12.dp))
-        Text("Vault: ${state.selectedSession?.vaultId ?: "-"}", style = MaterialTheme.typography.bodySmall)
+    }
+
+    if (showJoin) {
+        JoinPairingDialog(
+            onDismiss = { showJoin = false },
+            onJoin = { code ->
+                showJoin = false
+                controller.claimPairing(code)
+            },
+        )
+    }
+
+    revokeDeviceId?.let { deviceId ->
+        AlertDialog(
+            onDismissRequest = { revokeDeviceId = null },
+            title = { Text("Toegang intrekken?") },
+            text = { Text("Dit apparaat kan daarna niet meer synchroniseren met dit profiel.") },
+            confirmButton = {
+                Button(onClick = { revokeDeviceId = null; controller.revokeDevice(deviceId) }) {
+                    Text("Intrekken")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { revokeDeviceId = null }) { Text("Annuleer") }
+            },
+        )
+    }
+
+    if (confirmSelfRevoke) {
+        AlertDialog(
+            onDismissRequest = { confirmSelfRevoke = false },
+            title = { Text("Profiel loskoppelen?") },
+            text = { Text("De lokale toegang tot dit profiel wordt verwijderd. Andere profielen blijven staan.") },
+            confirmButton = {
+                Button(onClick = { confirmSelfRevoke = false; controller.selfRevokeCurrentProfile() }) {
+                    Text("Loskoppelen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSelfRevoke = false }) { Text("Annuleer") }
+            },
+        )
     }
 }
 
