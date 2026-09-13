@@ -103,10 +103,10 @@ class VaultRepository(
         val inviteId = Uuid.random().toString()
         val secret = crypto.randomBytes(16)
         val verificationHash = crypto.sha256(
-            "AW-PAIRING-VERIFY-V1\\n".encodeToByteArray() + secret
+            "AW-PAIRING-VERIFY-V1\n".encodeToByteArray() + secret
         )
         val wrappingKey = crypto.sha256(
-            "AW-PAIRING-WRAP-V1\\n".encodeToByteArray() + secret
+            "AW-PAIRING-WRAP-V1\n".encodeToByteArray() + secret
         )
         val nonce = crypto.randomBytes(24)
         val packagePayload = PairingKeyPackage(
@@ -166,7 +166,7 @@ class VaultRepository(
         )
 
         val wrappingKey = crypto.sha256(
-            "AW-PAIRING-WRAP-V1\\n".encodeToByteArray() + secret
+            "AW-PAIRING-WRAP-V1\n".encodeToByteArray() + secret
         )
         val plaintext = crypto.xChaCha20Poly1305Decrypt(
             key = wrappingKey,
@@ -933,7 +933,7 @@ class VaultRepository(
         vaultId: String,
         access: AccessMode,
     ): ByteArray =
-        ("AW-PAIRING-V1\\n" + inviteId + "\\n" + vaultId + "\\n" + access.name).encodeToByteArray()
+        ("AW-PAIRING-V1\n" + inviteId + "\n" + vaultId + "\n" + access.name).encodeToByteArray()
 
     @Serializable
     private data class PairingKeyPackage(
