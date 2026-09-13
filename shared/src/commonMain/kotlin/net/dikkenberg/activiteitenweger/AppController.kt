@@ -3,9 +3,12 @@
 
 package net.dikkenberg.activiteitenweger
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -82,6 +85,7 @@ class AppController(
     private val sessionStore = SessionStore(createSecureStore(), api.json)
     private val repository = VaultRepository(api, crypto, sessionStore)
     private val operationMutex = Mutex()
+    private var automaticSyncJob: Job? = null
     private var appInForeground: Boolean = true
 
     private val _state = MutableStateFlow(AppUiState())
@@ -111,7 +115,7 @@ class AppController(
         }
     }
 
-    fun createVault(label: String) = launchBusy {
+    fun createVault(label: String) = launchBusy(syncAfter = true) {
         val session = repository.createVault(label)
         _state.value = _state.value.copy(
             sessions = repository.sessions(),
@@ -120,7 +124,6 @@ class AppController(
             message = "Activiteitenweger aangemaakt",
         )
         loadCachedSelectedLocked()
-        syncAfterMutationLocked()
     }
 
     fun selectVault(vaultId: String) {
@@ -164,14 +167,20 @@ class AppController(
             !_state.value.initialized ||
             _state.value.selectedSession == null ||
             _state.value.busy ||
-            _state.value.syncing
+            _state.value.syncing ||
+            automaticSyncJob?.isActive == true
         ) return
-        scope.launch {
-            runSync(
-                fullRefresh = false,
-                announce = false,
-                showBusy = false,
-            )
+
+        automaticSyncJob = scope.launch {
+            try {
+                runSync(
+                    fullRefresh = false,
+                    announce = false,
+                    showBusy = false,
+                )
+            } finally {
+                automaticSyncJob = null
+            }
         }
     }
 
@@ -183,7 +192,7 @@ class AppController(
         }
     }
 
-    fun startActivity(description: String, category: ActivityCategory) = launchBusy {
+    fun startActivity(description: String, category: ActivityCategory) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         check(_state.value.activeActivity == null) { "Er loopt al een activiteit" }
         val created = repository.startActivity(session, description, category)
@@ -191,10 +200,9 @@ class AppController(
             activities = listOf(created) + _state.value.activities,
             message = "Activiteit gestart",
         )
-        syncAfterMutationLocked()
     }
 
-    fun stopActiveActivity() = launchBusy {
+    fun stopActiveActivity() = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         val active = requireNotNull(_state.value.activeActivity)
         val updated = repository.stopActivity(session, active)
@@ -204,7 +212,6 @@ class AppController(
             },
             message = "Activiteit afgerond",
         )
-        syncAfterMutationLocked()
     }
 
     fun addManualActivity(
@@ -214,7 +221,7 @@ class AppController(
         startTime: String,
         endDate: String,
         endTime: String,
-    ) = launchBusy {
+    ) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         val startedAt = localDateTimeToInstant(startDate, startTime)
         val endedAt = localDateTimeToInstant(endDate, endTime)
@@ -233,7 +240,6 @@ class AppController(
                 .sortedByDescending { it.payload.startedAt },
             message = "Activiteit handmatig toegevoegd",
         )
-        syncAfterMutationLocked()
     }
 
     fun updateActivity(
@@ -244,7 +250,7 @@ class AppController(
         startTime: String,
         endDate: String,
         endTime: String,
-    ) = launchBusy {
+    ) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         val startedAt = localDateTimeToInstant(startDate, startTime)
         val endedAt = localDateTimeToInstant(endDate, endTime)
@@ -269,10 +275,9 @@ class AppController(
                 .sortedByDescending { it.payload.startedAt },
             message = "Activiteit gewijzigd",
         )
-        syncAfterMutationLocked()
     }
 
-    fun renameProfile(vaultId: String, label: String) = launchBusy(conflictVaultId = vaultId) {
+    fun renameProfile(vaultId: String, label: String) = launchBusy(conflictVaultId = vaultId, syncAfter = true) {
         val session = _state.value.sessions.first { it.vaultId == vaultId }
         val updated = repository.updateProfileSettings(
             session = session,
@@ -280,16 +285,13 @@ class AppController(
         )
         replaceSession(updated)
         _state.value = _state.value.copy(message = "Profielnaam gewijzigd")
-        if (_state.value.selectedVaultId == vaultId) {
-            syncAfterMutationLocked()
-        }
     }
 
     fun saveCategory(
         categoryId: String?,
         label: String,
         pointsPer30Minutes: Double,
-    ) = launchBusy {
+    ) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
@@ -323,10 +325,9 @@ class AppController(
         _state.value = _state.value.copy(
             message = if (categoryId == null) "Categorie toegevoegd" else "Categorie gewijzigd",
         )
-        syncAfterMutationLocked()
     }
 
-    fun deleteCategory(categoryId: String) = launchBusy {
+    fun deleteCategory(categoryId: String) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
         check(session.categories.size > 1) { "Er moet minimaal één categorie overblijven" }
@@ -343,14 +344,13 @@ class AppController(
         )
         replaceSession(updated)
         _state.value = _state.value.copy(message = "Categorie verwijderd")
-        syncAfterMutationLocked()
     }
 
     fun saveActivityPreset(
         presetId: String?,
         label: String,
         categoryId: String,
-    ) = launchBusy {
+    ) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
@@ -388,10 +388,9 @@ class AppController(
                 "Standaardactiviteit gewijzigd"
             },
         )
-        syncAfterMutationLocked()
     }
 
-    fun deleteActivityPreset(presetId: String) = launchBusy {
+    fun deleteActivityPreset(presetId: String) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
@@ -406,20 +405,18 @@ class AppController(
         )
         replaceSession(updated)
         _state.value = _state.value.copy(message = "Standaardactiviteit verwijderd")
-        syncAfterMutationLocked()
     }
 
-    fun deleteActivity(item: ActivityItem) = launchBusy {
+    fun deleteActivity(item: ActivityItem) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         repository.deleteActivity(session, item)
         _state.value = _state.value.copy(
             activities = _state.value.activities.filterNot { it.recordId == item.recordId },
             message = "Activiteit verwijderd",
         )
-        syncAfterMutationLocked()
     }
 
-    fun exportExcel() = launchBusy {
+    fun exportExcel() = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         val exportCategories = (session.categories + _state.value.activities.map { it.payload.category })
             .distinctBy { it.id }
@@ -441,7 +438,7 @@ class AppController(
         }
     }
 
-    fun importExcel(fallbackYear: Int) = launchBusy {
+    fun importExcel(fallbackYear: Int) = launchBusy(syncAfter = true) {
         val session = requireNotNull(_state.value.selectedSession)
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
@@ -507,9 +504,6 @@ class AppController(
         }.joinToString(", ")
 
         _state.value = _state.value.copy(message = "Excel geïmporteerd: $details")
-        if (created.isNotEmpty()) {
-            syncAfterMutationLocked()
-        }
     }
 
     fun deleteCurrentVault() = launchBusy {
@@ -643,28 +637,6 @@ class AppController(
         }
     }
 
-    private suspend fun syncAfterMutationLocked() {
-        val failure = runCatching {
-            syncSelectedLocked(
-                fullRefresh = false,
-                announce = false,
-            )
-        }.exceptionOrNull()
-
-        if (failure != null) {
-            loadCachedSelectedLocked()
-            val pending = _state.value.pendingChanges
-            _state.value = _state.value.copy(
-                error = null,
-                message = if (pending > 0) {
-                    "Lokaal opgeslagen · $pending wijziging(en) wachten op internet"
-                } else {
-                    "Lokaal opgeslagen · synchronisatie volgt zodra internet terug is"
-                },
-            )
-        }
-    }
-
     private suspend fun handleRevisionConflictLocked(
         exception: ApiException,
         conflictVaultId: String? = null,
@@ -726,7 +698,10 @@ class AppController(
                     fullRefresh = fullRefresh,
                     announce = announce,
                 )
-            }.onFailure {
+            }.onFailure { error ->
+                if (error is CancellationException) {
+                    throw error
+                }
                 loadCachedSelectedLocked()
                 if (showBusy || announce) {
                     _state.value = _state.value.copy(
@@ -744,18 +719,25 @@ class AppController(
 
     private fun launchBusy(
         conflictVaultId: String? = null,
+        syncAfter: Boolean = false,
         block: suspend () -> Unit,
     ) {
         scope.launch {
+            // Een automatische netwerk-sync mag een lokale Start/Stop/Wijzig
+            // nooit blokkeren. Breek die eerst af en wacht tot de lokale mutex vrij is.
+            automaticSyncJob?.cancelAndJoin()
+
             _state.value = _state.value.copy(
                 busy = true,
                 error = null,
                 conflict = null,
             )
 
+            var succeeded = false
             operationMutex.withLock {
                 try {
                     block()
+                    succeeded = true
                 } catch (e: ApiException) {
                     if (e.isRevisionConflict) {
                         handleRevisionConflictLocked(e, conflictVaultId)
@@ -772,6 +754,12 @@ class AppController(
             }
 
             _state.value = _state.value.copy(busy = false)
+
+            // De lokale wijziging is nu duurzaam opgeslagen. Netwerk-sync gebeurt
+            // pas daarna, los van de knopactie, zodat offline gebruik direct blijft werken.
+            if (succeeded && syncAfter) {
+                syncCurrentSilently()
+            }
         }
     }
 
