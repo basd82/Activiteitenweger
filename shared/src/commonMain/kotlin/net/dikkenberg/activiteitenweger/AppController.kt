@@ -52,6 +52,8 @@ data class AppUiState(
     val serverVersion: String? = null,
     val syncing: Boolean = false,
     val lastSyncAt: String? = null,
+    val pendingChanges: Int = 0,
+    val conflictChanges: Int = 0,
     val conflict: SyncConflictInfo? = null,
     val message: String? = null,
     val error: String? = null,
@@ -97,6 +99,9 @@ class AppController(
             )
             checkHealth()
             if (selected != null) {
+                operationMutex.withLock {
+                    loadCachedSelectedLocked()
+                }
                 runSync(
                     fullRefresh = true,
                     announce = false,
@@ -114,7 +119,8 @@ class AppController(
             activities = emptyList(),
             message = "Activiteitenweger aangemaakt",
         )
-        syncSelectedLocked(fullRefresh = true, announce = false)
+        loadCachedSelectedLocked()
+        syncAfterMutationLocked()
     }
 
     fun selectVault(vaultId: String) {
@@ -126,14 +132,15 @@ class AppController(
                     activities = emptyList(),
                     conflict = null,
                 )
+                loadCachedSelectedLocked()
                 runCatching {
                     syncSelectedLocked(
                         fullRefresh = true,
                         announce = false,
                     )
-                }.onFailure { e ->
+                }.onFailure {
                     _state.value = _state.value.copy(
-                        error = e.message ?: e::class.simpleName,
+                        message = "Offline: lokale gegevens worden getoond. Synchronisatie volgt automatisch zodra internet terug is.",
                     )
                 }
             }
@@ -532,7 +539,7 @@ class AppController(
                 }
                 .onFailure {
                     _state.value = _state.value.copy(
-                        health = "Niet bereikbaar",
+                        health = "Offline",
                         serverVersion = null,
                     )
                 }
@@ -582,6 +589,22 @@ class AppController(
             .toString()
     }
 
+    private suspend fun loadCachedSelectedLocked() {
+        val session = _state.value.selectedSession ?: return
+        val (updatedSession, activities) = repository.loadCachedActivities(session)
+        val sessions = repository.sessions().map {
+            if (it.vaultId == updatedSession.vaultId) updatedSession else it
+        }
+        val pendingChanges = repository.pendingCount(updatedSession.vaultId)
+        val conflictChanges = repository.conflictCount(updatedSession.vaultId)
+        _state.value = _state.value.copy(
+            sessions = sessions,
+            activities = activities,
+            pendingChanges = pendingChanges,
+            conflictChanges = conflictChanges,
+        )
+    }
+
     private suspend fun syncSelectedLocked(
         fullRefresh: Boolean,
         announce: Boolean,
@@ -599,12 +622,20 @@ class AppController(
             val sessions = repository.sessions().map {
                 if (it.vaultId == updatedSession.vaultId) updatedSession else it
             }
+            val pendingChanges = repository.pendingCount(updatedSession.vaultId)
+            val conflictChanges = repository.conflictCount(updatedSession.vaultId)
             _state.value = _state.value.copy(
                 sessions = sessions,
                 activities = activities,
                 lastSyncAt = Clock.System.now().toString(),
+                pendingChanges = pendingChanges,
+                conflictChanges = conflictChanges,
                 syncing = false,
-                message = if (announce) "Gesynchroniseerd" else _state.value.message,
+                message = if (announce) {
+                    if (pendingChanges == 0) "Gesynchroniseerd" else "$pendingChanges wijziging(en) wachten op synchronisatie"
+                } else {
+                    _state.value.message
+                },
             )
         } catch (e: Throwable) {
             _state.value = _state.value.copy(syncing = false)
@@ -613,16 +644,23 @@ class AppController(
     }
 
     private suspend fun syncAfterMutationLocked() {
-        runCatching {
+        val failure = runCatching {
             syncSelectedLocked(
                 fullRefresh = false,
                 announce = false,
             )
-        }.onFailure {
+        }.exceptionOrNull()
+
+        if (failure != null) {
+            loadCachedSelectedLocked()
+            val pending = _state.value.pendingChanges
             _state.value = _state.value.copy(
-                message = null,
-                error = "De wijziging is opgeslagen, maar het ophalen van de nieuwste synchronisatiestatus is mislukt: " +
-                    (it.message ?: it::class.simpleName),
+                error = null,
+                message = if (pending > 0) {
+                    "Lokaal opgeslagen · $pending wijziging(en) wachten op internet"
+                } else {
+                    "Lokaal opgeslagen · synchronisatie volgt zodra internet terug is"
+                },
             )
         }
     }
@@ -688,10 +726,12 @@ class AppController(
                     fullRefresh = fullRefresh,
                     announce = announce,
                 )
-            }.onFailure { e ->
+            }.onFailure {
+                loadCachedSelectedLocked()
                 if (showBusy || announce) {
                     _state.value = _state.value.copy(
-                        error = e.message ?: e::class.simpleName,
+                        error = null,
+                        message = "Geen verbinding · lokale gegevens blijven beschikbaar en wijzigingen worden later gesynchroniseerd",
                     )
                 }
             }
