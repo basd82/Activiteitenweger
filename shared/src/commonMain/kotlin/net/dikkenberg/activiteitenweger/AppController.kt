@@ -20,6 +20,7 @@ import net.dikkenberg.activiteitenweger.excel.ExcelTransfer
 import net.dikkenberg.activiteitenweger.model.AccessMode
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
+import net.dikkenberg.activiteitenweger.model.ActivityPreset
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
 import net.dikkenberg.activiteitenweger.platform.pickExcelFileBytes
@@ -51,6 +52,9 @@ data class AppUiState(
 
     val categories: List<ActivityCategory>
         get() = selectedSession?.categories ?: ActivityCategory.defaults
+
+    val activityPresets: List<ActivityPreset>
+        get() = selectedSession?.activityPresets.orEmpty()
 }
 
 class AppController(
@@ -250,9 +254,77 @@ class AppController(
 
             val categories = session.categories.filterNot { it.id == categoryId }
             check(categories.size != session.categories.size) { "Categorie niet gevonden" }
+            check(session.activityPresets.none { it.categoryId == categoryId }) {
+                "Deze categorie wordt nog gebruikt door een standaardactiviteit"
+            }
 
             updateSessionCategories(session, categories)
             _state.value = _state.value.copy(message = "Categorie verwijderd", error = null)
+        }.onFailure { e ->
+            _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
+        }
+    }
+
+    fun saveActivityPreset(
+        presetId: String?,
+        label: String,
+        categoryId: String,
+    ) {
+        runCatching {
+            val session = requireNotNull(_state.value.selectedSession)
+            check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+
+            val cleanLabel = label.trim()
+            require(cleanLabel.isNotBlank()) { "Vul een naam voor de standaardactiviteit in" }
+            check(session.categories.any { it.id == categoryId }) { "Kies een geldige categorie" }
+
+            val duplicate = session.activityPresets.any {
+                it.id != presetId && it.label.equals(cleanLabel, ignoreCase = true)
+            }
+            check(!duplicate) { "Er bestaat al een standaardactiviteit met deze naam" }
+
+            val updatedPreset = ActivityPreset(
+                id = presetId ?: "preset-${Uuid.random()}",
+                label = cleanLabel,
+                categoryId = categoryId,
+            )
+            val presets = if (presetId == null) {
+                session.activityPresets + updatedPreset
+            } else {
+                session.activityPresets.map {
+                    if (it.id == presetId) updatedPreset else it
+                }
+            }
+
+            updateSessionActivityPresets(session, presets)
+            _state.value = _state.value.copy(
+                message = if (presetId == null) {
+                    "Standaardactiviteit toegevoegd"
+                } else {
+                    "Standaardactiviteit gewijzigd"
+                },
+                error = null,
+            )
+        }.onFailure { e ->
+            _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
+        }
+    }
+
+    fun deleteActivityPreset(presetId: String) {
+        runCatching {
+            val session = requireNotNull(_state.value.selectedSession)
+            check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+
+            val presets = session.activityPresets.filterNot { it.id == presetId }
+            check(presets.size != session.activityPresets.size) {
+                "Standaardactiviteit niet gevonden"
+            }
+
+            updateSessionActivityPresets(session, presets)
+            _state.value = _state.value.copy(
+                message = "Standaardactiviteit verwijderd",
+                error = null,
+            )
         }.onFailure { e ->
             _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
         }
@@ -388,6 +460,18 @@ class AppController(
         categories: List<ActivityCategory>,
     ) {
         val updated = repository.updateCategories(session.vaultId, categories)
+        _state.value = _state.value.copy(
+            sessions = _state.value.sessions.map {
+                if (it.vaultId == updated.vaultId) updated else it
+            },
+        )
+    }
+
+    private fun updateSessionActivityPresets(
+        session: VaultSession,
+        presets: List<ActivityPreset>,
+    ) {
+        val updated = repository.updateActivityPresets(session.vaultId, presets)
         _state.value = _state.value.copy(
             sessions = _state.value.sessions.map {
                 if (it.vaultId == updated.vaultId) updated else it
