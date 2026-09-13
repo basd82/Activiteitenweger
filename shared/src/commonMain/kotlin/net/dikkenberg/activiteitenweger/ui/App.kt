@@ -663,7 +663,7 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column {
-                                Text(date.toString(), style = MaterialTheme.typography.titleMedium)
+                                Text(date, style = MaterialTheme.typography.titleMedium)
                                 Text(
                                     "${dayItems.size} ${if (dayItems.size == 1) "activiteit" else "activiteiten"}",
                                     style = MaterialTheme.typography.bodySmall,
