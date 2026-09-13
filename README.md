@@ -43,7 +43,7 @@ Pairing via QR/koppelcode, R/RW grants, self-revoke van een behandelaar, access-
 
 ## Versies (13 september 2026)
 
-App-versie: **0.2.2 (build 12)**  
+App-versie: **0.3.0 (build 13)**  
 Verwachte API-major: **v1**; getest met server **1.1.0**
 
 - Kotlin 2.4.20

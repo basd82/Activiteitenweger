@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.0 — 2026-09-13
+
+### Pairing en multi-device
+- Tweede apparaat of behandelaar koppelen via QR-code of handmatige koppelcode.
+- Owner kiest per koppeling **R** (alleen lezen) of **RW** (lezen en schrijven).
+- QR-code wordt lokaal gegenereerd; de pairing secret is 128 bit random.
+- Pairing key package blijft end-to-end versleuteld; de server ziet de VaultKey niet.
+- Device-overzicht met toegang, status en laatst actief.
+- Owner kan toegang van een gekoppeld device intrekken.
+- Niet-owner device kan zichzelf van een profiel loskoppelen.
+- Requests sturen expliciet `X-AW-Vault-Id` mee voor multi-vault servercontext.
+
+### Conflictresolver
+- Echte multi-device revision-conflicten worden lokaal vastgehouden.
+- Resolver toont lokale en serverversie.
+- Gebruiker kan kiezen tussen **Mijn versie gebruiken** en **Serverversie gebruiken**.
+- Bij **Mijn versie** wordt een nieuwe mutatie bovenop de actuele serverrevision gemaakt; er wordt niet blind overschreven.
+
+### Platform
+- Camera-permissie voor QR-scannen op Android en iOS.
+- Appversie 0.3.0 build 13.
+
+
 ## 0.2.2 — 2026-09-13
 
 ### Offline bediening

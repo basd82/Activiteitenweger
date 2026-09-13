@@ -12,6 +12,8 @@ cryptography = "0.6.0"
 kvault = "1.12.0"
 kexcel = "0.1.1"
 filekit = "0.14.2"
+qrose = "1.1.0"
+kscan = "0.9.2"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -36,6 +38,8 @@ kvault = { module = "com.liftric:kvault", version.ref = "kvault" }
 kexcel = { module = "com.gyanoba.kexcel:kexcel", version.ref = "kexcel" }
 filekit-core = { module = "io.github.vinceglb:filekit-core", version.ref = "filekit" }
 filekit-dialogs = { module = "io.github.vinceglb:filekit-dialogs", version.ref = "filekit" }
+qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
+kscan = { module = "io.github.ismai117:KScan", version.ref = "kscan" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

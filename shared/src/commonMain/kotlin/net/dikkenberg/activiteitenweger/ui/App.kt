@@ -3,6 +3,7 @@
 
 package net.dikkenberg.activiteitenweger.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -19,13 +20,19 @@ import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import net.dikkenberg.activiteitenweger.AppController
 import net.dikkenberg.activiteitenweger.AppUiState
+import io.github.alexzhirkevich.qrose.rememberQrCodePainter
+import net.dikkenberg.activiteitenweger.model.AccessMode
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
 import net.dikkenberg.activiteitenweger.model.ActivityPreset
 import net.dikkenberg.activiteitenweger.model.SyncStatus
+import net.dikkenberg.activiteitenweger.platform.CameraPermissionGate
 import net.dikkenberg.activiteitenweger.platform.appBuildNumber
 import net.dikkenberg.activiteitenweger.platform.appVersionName
 import kotlin.math.abs
+import org.ncgroup.kscan.BarcodeFormat
+import org.ncgroup.kscan.BarcodeResult
+import org.ncgroup.kscan.ScannerView
 import kotlin.time.Clock
 
 private enum class Destination(val label: String) {
@@ -62,6 +69,7 @@ fun ActiviteitenwegerApp(controller: AppController = remember { AppController() 
                     busy = state.busy,
                     error = state.error,
                     onCreate = controller::createVault,
+                    onJoin = controller::claimPairing,
                 )
                 else -> AdaptiveShell(
                     destination = destination,
@@ -119,6 +127,13 @@ private fun AdaptiveShell(
         }
     }
 
+    state.conflictSnapshot?.let { conflict ->
+        ConflictResolverDialog(
+            conflict = conflict,
+            onUseMine = controller::resolveConflictKeepMine,
+            onUseServer = controller::resolveConflictUseServer,
+        )
+    }
     state.error?.let { MessageDialog("Fout", it, controller::clearNotice) }
     state.message?.let { MessageDialog("Activiteitenweger", it, controller::clearNotice) }
 }
@@ -135,7 +150,7 @@ private fun Content(
             Destination.TODAY -> TodayScreen(state, controller)
             Destination.HISTORY -> HistoryScreen(state, controller)
             Destination.CLIENTS -> ProfilesScreen(state, controller)
-            Destination.SHARE -> ShareScreen(state)
+            Destination.SHARE -> ShareScreen(state, controller)
             Destination.SETTINGS -> SettingsScreen(state, controller)
         }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
@@ -143,9 +158,16 @@ private fun Content(
 }
 
 @Composable
-private fun WelcomeScreen(busy: Boolean, error: String?, onCreate: (String) -> Unit) {
+private fun WelcomeScreen(
+    busy: Boolean,
+    error: String?,
+    onCreate: (String) -> Unit,
+    onJoin: (String) -> Unit,
+) {
     var label by remember { mutableStateOf("Mijn Activiteitenweger") }
     var showLicense by remember { mutableStateOf(false) }
+    var showJoin by remember { mutableStateOf(false) }
+
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -154,17 +176,31 @@ private fun WelcomeScreen(busy: Boolean, error: String?, onCreate: (String) -> U
         Text("Activiteitenweger", style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(12.dp))
         Text(
-            "Registreer activiteiten en deel later versleuteld met een behandelaar. " +
-                "De server ontvangt geen leesbare activiteitgegevens.",
+            "Registreer activiteiten of koppel veilig een bestaand profiel via QR-code of koppelcode.",
             style = MaterialTheme.typography.bodyLarge,
         )
         Spacer(Modifier.height(24.dp))
         OutlinedTextField(label, { label = it }, label = { Text("Naam van profiel") })
         Spacer(Modifier.height(12.dp))
-        Button(onClick = { onCreate(label) }, enabled = !busy) {
+        Button(
+            onClick = { onCreate(label) },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("Nieuwe Activiteitenweger maken")
         }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { showJoin = true },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Bestaand profiel koppelen")
+        }
+        error?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
         Spacer(Modifier.height(24.dp))
         Text(
             "Versie ${appVersionName()} (build ${appBuildNumber()})",
@@ -175,6 +211,16 @@ private fun WelcomeScreen(busy: Boolean, error: String?, onCreate: (String) -> U
             style = MaterialTheme.typography.bodySmall,
         )
         TextButton(onClick = { showLicense = true }) { Text("Licentie-informatie") }
+    }
+
+    if (showJoin) {
+        JoinPairingDialog(
+            onDismiss = { showJoin = false },
+            onJoin = {
+                showJoin = false
+                onJoin(it)
+            },
+        )
     }
 
     if (showLicense) {
@@ -791,8 +837,8 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
                     ActivityCard(
                         item = activity,
                         now = Clock.System.now(),
-                        canEdit = state.canWrite,
-                        canDelete = state.canWrite,
+                        canEdit = state.canWrite && activity.syncStatus != SyncStatus.CONFLICT,
+                        canDelete = state.canWrite && activity.syncStatus != SyncStatus.CONFLICT,
                         onEdit = { editingItem = activity },
                         onDelete = { controller.deleteActivity(activity) },
                     )
@@ -926,27 +972,181 @@ private fun ProfilesScreen(state: AppUiState, controller: AppController) {
 }
 
 @Composable
-private fun ShareScreen(state: AppUiState) {
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+private fun ShareScreen(state: AppUiState, controller: AppController) {
+    val session = state.selectedSession
+    var showJoin by remember { mutableStateOf(false) }
+    var revokeDeviceId by remember { mutableStateOf<String?>(null) }
+    var confirmSelfRevoke by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(state.selectedVaultId, session?.access) {
+        if (session != null && session.access == AccessMode.RW) {
+            controller.refreshDevices()
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         Text("Delen en koppelen", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(12.dp))
+
+        if (session == null) {
+            Text("Kies eerst een profiel.")
+            return@Column
+        }
+
         ElevatedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("R — Alleen lezen", style = MaterialTheme.typography.titleMedium)
-                Text("Voor bijvoorbeeld een behandelaar die gegevens mag bekijken maar niet wijzigen.")
-                Spacer(Modifier.height(12.dp))
-                Text("RW — Lezen en schrijven", style = MaterialTheme.typography.titleMedium)
-                Text("Voor een eigen extra apparaat of iemand die ook registraties mag aanpassen.")
+                Text("Toegang delen", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Text("R — alleen lezen: geschikt voor iemand die activiteiten alleen hoeft te bekijken.")
+                Text("RW — lezen en schrijven: geschikt voor een eigen extra apparaat of iemand die ook mag registreren en wijzigen.")
+                if (session.owner) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { controller.createPairingInvitation(AccessMode.R) },
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Koppel apparaat met R-toegang") }
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = { controller.createPairingInvitation(AccessMode.RW) },
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Koppel apparaat met RW-toegang") }
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Alleen de eigenaar van dit profiel kan nieuwe apparaten koppelen.")
+                }
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "De app-architectuur is voorbereid op QR/koppelcode en meerdere cliënten. " +
-                "De huidige server-API heeft nog geen pairing-relay/device-grant endpoints; daarom is koppelen in deze build bewust nog niet activeerbaar.",
-            style = MaterialTheme.typography.bodyLarge,
+
+        OutlinedButton(
+            onClick = { showJoin = true },
+            enabled = !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Bestaand profiel aan deze app koppelen")
+        }
+
+        if (session.access == AccessMode.RW) {
+            HorizontalDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Apparaten", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = controller::refreshDevices, enabled = !state.busy) {
+                    Text("Vernieuwen")
+                }
+            }
+
+            if (state.devices.isEmpty()) {
+                Text("Nog geen apparatenlijst geladen.")
+            } else {
+                state.devices.forEach { device ->
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        when {
+                                            device.deviceId == session.deviceId -> "Dit apparaat"
+                                            device.owner -> "Eigenaar"
+                                            else -> "Gekoppeld apparaat"
+                                        },
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text("Toegang: ${device.access.name}")
+                                    Text("Status: ${device.status}", style = MaterialTheme.typography.bodySmall)
+                                    device.lastSeenAt?.let {
+                                        Text("Laatst actief: ${formatLocalTime(it)}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                if (
+                                    session.owner &&
+                                    !device.owner &&
+                                    device.status == "ACTIVE" &&
+                                    device.deviceId != session.deviceId
+                                ) {
+                                    TextButton(onClick = { revokeDeviceId = device.deviceId }) {
+                                        Text("Intrekken")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!session.owner) {
+            HorizontalDivider()
+            OutlinedButton(
+                onClick = { confirmSelfRevoke = true },
+                enabled = !state.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Dit apparaat loskoppelen van profiel")
+            }
+        }
+
+        Text("Vault: ${session.vaultId}", style = MaterialTheme.typography.bodySmall)
+    }
+
+    state.pairingInvitation?.let { invitation ->
+        PairingInvitationDialog(
+            invitation = invitation,
+            onClose = controller::clearPairingInvitation,
+            onRevoke = controller::revokePairingInvitation,
         )
-        Spacer(Modifier.height(12.dp))
-        Text("Vault: ${state.selectedSession?.vaultId ?: "-"}", style = MaterialTheme.typography.bodySmall)
+    }
+
+    if (showJoin) {
+        JoinPairingDialog(
+            onDismiss = { showJoin = false },
+            onJoin = { code ->
+                showJoin = false
+                controller.claimPairing(code)
+            },
+        )
+    }
+
+    revokeDeviceId?.let { deviceId ->
+        AlertDialog(
+            onDismissRequest = { revokeDeviceId = null },
+            title = { Text("Toegang intrekken?") },
+            text = { Text("Dit apparaat kan daarna niet meer synchroniseren met dit profiel.") },
+            confirmButton = {
+                Button(onClick = { revokeDeviceId = null; controller.revokeDevice(deviceId) }) {
+                    Text("Intrekken")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { revokeDeviceId = null }) { Text("Annuleer") }
+            },
+        )
+    }
+
+    if (confirmSelfRevoke) {
+        AlertDialog(
+            onDismissRequest = { confirmSelfRevoke = false },
+            title = { Text("Profiel loskoppelen?") },
+            text = { Text("De lokale toegang tot dit profiel wordt verwijderd. Andere profielen blijven staan.") },
+            confirmButton = {
+                Button(onClick = { confirmSelfRevoke = false; controller.selfRevokeCurrentProfile() }) {
+                    Text("Loskoppelen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSelfRevoke = false }) { Text("Annuleer") }
+            },
+        )
     }
 }
 
@@ -1652,6 +1852,194 @@ private fun ScrollDownButton(
     }
 }
 
+@Composable
+private fun PairingInvitationDialog(
+    invitation: net.dikkenberg.activiteitenweger.model.PairingInvitation,
+    onClose: () -> Unit,
+    onRevoke: () -> Unit,
+) {
+    val qrPainter = rememberQrCodePainter(invitation.qrPayload)
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Apparaat koppelen") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "Toegang: ${invitation.access.name} · geldig gedurende ongeveer ${invitation.expiresInSeconds / 60} minuten",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(16.dp))
+                Image(
+                    painter = qrPainter,
+                    contentDescription = "QR-koppelcode",
+                    modifier = Modifier.size(240.dp),
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("Handmatige koppelcode", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                Text(invitation.code, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "De code geeft toegang tot de versleutelde sleutel van dit profiel. Deel hem alleen met het apparaat dat je wilt koppelen.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose) { Text("Sluiten") }
+        },
+        dismissButton = {
+            TextButton(onClick = onRevoke) { Text("Koppelcode intrekken") }
+        },
+    )
+}
+
+@Composable
+private fun JoinPairingDialog(
+    onDismiss: () -> Unit,
+    onJoin: (String) -> Unit,
+) {
+    var code by remember { mutableStateOf("") }
+    var scanning by remember { mutableStateOf(false) }
+    var scanError by remember { mutableStateOf<String?>(null) }
+
+    if (scanning) {
+        AlertDialog(
+            onDismissRequest = { scanning = false },
+            title = { Text("QR-code scannen") },
+            text = {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(420.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CameraPermissionGate {
+                        ScannerView(
+                            modifier = Modifier.fillMaxSize(),
+                            codeTypes = listOf(BarcodeFormat.FORMAT_QR_CODE),
+                            scannerUiOptions = null,
+                        ) { result ->
+                            when (result) {
+                                is BarcodeResult.OnSuccess -> {
+                                    code = result.barcode.data
+                                    scanning = false
+                                    scanError = null
+                                }
+                                is BarcodeResult.OnFailed -> {
+                                    scanError = result.exception.message ?: "Scannen mislukt"
+                                }
+                                BarcodeResult.OnCanceled -> scanning = false
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { scanning = false }) { Text("Annuleer") }
+            },
+        )
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Bestaand profiel koppelen") },
+        text = {
+            Column {
+                Text("Scan de QR-code of vul de handmatige koppelcode in.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it },
+                    label = { Text("Koppelcode") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { scanning = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("QR-code scannen")
+                }
+                scanError?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onJoin(code) },
+                enabled = code.isNotBlank(),
+            ) {
+                Text("Koppelen")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
+}
+
+@Composable
+private fun ConflictResolverDialog(
+    conflict: net.dikkenberg.activiteitenweger.model.ActivityConflictSnapshot,
+    onUseMine: () -> Unit,
+    onUseServer: () -> Unit,
+) {
+    fun describe(
+        payload: net.dikkenberg.activiteitenweger.model.ActivityRecordPayload?,
+        deleted: Boolean,
+        revision: Long,
+    ): String {
+        if (deleted) return "Verwijderd · revision $revision"
+        if (payload == null) return "Versleutelde profielinstelling · revision $revision"
+        val end = payload.endedAt?.let(::formatLocalTime) ?: "lopend"
+        return buildString {
+            append(payload.description)
+            append("\n")
+            append(payload.category.label)
+            append(" · ")
+            append(formatLocalTime(payload.startedAt))
+            append(" – ")
+            append(end)
+            append("\nrevision ")
+            append(revision)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Synchronisatieconflict") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Dit item is op twee apparaten gewijzigd. Kies welke versie moet blijven.")
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Jouw versie", style = MaterialTheme.typography.titleSmall)
+                        Text(describe(conflict.localPayload, conflict.localDeleted, conflict.localRevision))
+                    }
+                }
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Serverversie", style = MaterialTheme.typography.titleSmall)
+                        Text(describe(conflict.remotePayload, conflict.remoteDeleted, conflict.remoteRevision))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onUseMine) { Text("Mijn versie gebruiken") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onUseServer) { Text("Serverversie gebruiken") }
+        },
+    )
+}
 @Composable
 private fun MessageDialog(title: String, text: String, onDismiss: () -> Unit) {
     AlertDialog(

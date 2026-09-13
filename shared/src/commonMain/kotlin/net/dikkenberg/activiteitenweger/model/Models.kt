@@ -164,3 +164,22 @@ data class DeviceInfo(
     val lastSeenAt: String? = null,
     val revokedAt: String? = null,
 )
+
+
+data class PairingInvitation(
+    val inviteId: String,
+    val code: String,
+    val qrPayload: String,
+    val access: AccessMode,
+    val expiresInSeconds: Int,
+)
+
+data class ActivityConflictSnapshot(
+    val recordId: String,
+    val localRevision: Long,
+    val remoteRevision: Long,
+    val localPayload: ActivityRecordPayload?,
+    val remotePayload: ActivityRecordPayload?,
+    val localDeleted: Boolean,
+    val remoteDeleted: Boolean,
+)

@@ -61,3 +61,19 @@ private fun decodeBase64(value: String): ByteArray {
 fun ByteArray.hexLower(): String = joinToString("") { b ->
     (b.toInt() and 0xff).toString(16).padStart(2, '0')
 }
+
+
+fun ByteArray.hexUpper(): String = joinToString("") { b ->
+    (b.toInt() and 0xff).toString(16).padStart(2, '0').uppercase()
+}
+
+fun String.fromHexFlexible(): ByteArray {
+    val clean = filter(Char::isLetterOrDigit).uppercase()
+    require(clean.length % 2 == 0) { "Invalid hex length" }
+    return ByteArray(clean.length / 2) { index ->
+        clean.substring(index * 2, index * 2 + 2).toInt(16).toByte()
+    }
+}
+
+fun String.groupedPairingCode(groupSize: Int = 4): String =
+    filter(Char::isLetterOrDigit).uppercase().chunked(groupSize).joinToString("-")

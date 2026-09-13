@@ -58,6 +58,53 @@ data class DeviceResponse(
     val revokedAt: String? = null,
 )
 
+
+@Serializable
+data class CreatePairingInviteRequest(
+    val inviteId: String,
+    val access: AccessMode,
+    val pairingSecretHash: String,
+    val keyPackageCiphertext: String,
+    val keyPackageNonce: String,
+    val expiresInSeconds: Int = 600,
+)
+
+@Serializable
+data class CreatePairingInviteResponse(
+    val status: String,
+    val inviteId: String,
+    val access: AccessMode,
+    val keyEpoch: Int,
+    val expiresInSeconds: Int,
+)
+
+@Serializable
+data class ClaimPairingRequest(
+    val pairingSecret: String,
+    val deviceId: String,
+    val authPublicKey: String,
+    val encryptionPublicKey: String,
+)
+
+@Serializable
+data class ClaimPairingResponse(
+    val status: String,
+    val inviteId: String,
+    val vaultId: String,
+    val deviceId: String,
+    val access: AccessMode,
+    val owner: Boolean,
+    val keyEpoch: Int,
+    val keyPackageCiphertext: String,
+    val keyPackageNonce: String,
+)
+
+@Serializable
+data class RevokeResponse(
+    val status: String,
+    val deviceId: String? = null,
+)
+
 @Serializable
 data class UpsertRecordRequest(
     val recordId: String,

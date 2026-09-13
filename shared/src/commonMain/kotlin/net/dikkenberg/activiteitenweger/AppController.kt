@@ -24,8 +24,11 @@ import net.dikkenberg.activiteitenweger.data.VaultRepository
 import net.dikkenberg.activiteitenweger.excel.ExcelTransfer
 import net.dikkenberg.activiteitenweger.model.AccessMode
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
+import net.dikkenberg.activiteitenweger.model.ActivityConflictSnapshot
 import net.dikkenberg.activiteitenweger.model.ActivityItem
 import net.dikkenberg.activiteitenweger.model.ActivityPreset
+import net.dikkenberg.activiteitenweger.model.DeviceInfo
+import net.dikkenberg.activiteitenweger.model.PairingInvitation
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
 import net.dikkenberg.activiteitenweger.network.ApiException
@@ -57,7 +60,10 @@ data class AppUiState(
     val lastSyncAt: String? = null,
     val pendingChanges: Int = 0,
     val conflictChanges: Int = 0,
+    val devices: List<DeviceInfo> = emptyList(),
+    val pairingInvitation: PairingInvitation? = null,
     val conflict: SyncConflictInfo? = null,
+    val conflictSnapshot: ActivityConflictSnapshot? = null,
     val message: String? = null,
     val error: String? = null,
 ) {
@@ -123,6 +129,103 @@ class AppController(
         loadCachedSelectedLocked()
     }
 
+    fun createPairingInvitation(access: AccessMode) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val invitation = repository.createPairingInvitation(session, access)
+        _state.value = _state.value.copy(
+            pairingInvitation = invitation,
+            message = null,
+        )
+    }
+
+    fun clearPairingInvitation() {
+        _state.value = _state.value.copy(pairingInvitation = null)
+    }
+
+    fun revokePairingInvitation() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val invitation = requireNotNull(_state.value.pairingInvitation)
+        repository.revokePairingInvitation(session, invitation.inviteId)
+        _state.value = _state.value.copy(
+            pairingInvitation = null,
+            message = "Koppelcode ingetrokken",
+        )
+    }
+
+    fun claimPairing(codeOrQr: String) = launchBusy {
+        val session = repository.claimPairing(codeOrQr)
+        _state.value = _state.value.copy(
+            sessions = repository.sessions(),
+            selectedVaultId = session.vaultId,
+            activities = emptyList(),
+            devices = emptyList(),
+            pairingInvitation = null,
+            message = "Profiel gekoppeld met " + session.access.name + "-toegang",
+        )
+        loadCachedSelectedLocked()
+        syncSelectedLocked(fullRefresh = true, announce = false)
+    }
+
+    fun refreshDevices() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        _state.value = _state.value.copy(devices = repository.devices(session))
+    }
+
+    fun revokeDevice(deviceId: String) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        repository.revokeDevice(session, deviceId)
+        _state.value = _state.value.copy(
+            devices = repository.devices(session),
+            message = "Toegang ingetrokken",
+        )
+    }
+
+    fun selfRevokeCurrentProfile() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        repository.selfRevoke(session)
+        val sessions = repository.sessions()
+        val selected = sessions.firstOrNull()?.vaultId
+        _state.value = _state.value.copy(
+            sessions = sessions,
+            selectedVaultId = selected,
+            activities = emptyList(),
+            devices = emptyList(),
+            message = "Dit apparaat is losgekoppeld van het profiel",
+        )
+        if (selected != null) {
+            loadCachedSelectedLocked()
+        }
+    }
+
+    fun resolveConflictUseServer() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val snapshot = requireNotNull(_state.value.conflictSnapshot)
+        val (updated, activities) = repository.resolveConflictUseServer(session, snapshot.recordId)
+        replaceSession(updated)
+        _state.value = _state.value.copy(
+            activities = activities,
+            conflict = null,
+            conflictSnapshot = null,
+            conflictChanges = repository.conflictCount(session.vaultId),
+            message = "Serverversie gebruikt",
+            error = null,
+        )
+    }
+
+    fun resolveConflictKeepMine() = launchBusy(syncAfter = true) {
+        val session = requireNotNull(_state.value.selectedSession)
+        val snapshot = requireNotNull(_state.value.conflictSnapshot)
+        val (updated, activities) = repository.resolveConflictKeepMine(session, snapshot.recordId)
+        replaceSession(updated)
+        _state.value = _state.value.copy(
+            activities = activities,
+            conflict = null,
+            conflictSnapshot = null,
+            conflictChanges = repository.conflictCount(session.vaultId),
+            message = "Jouw versie staat klaar om opnieuw te synchroniseren",
+            error = null,
+        )
+    }
     fun selectVault(vaultId: String) {
         scope.launch {
             // Voorkom dat een sync van het vorige profiel na de wissel nog UI-state terugschrijft.
@@ -133,7 +236,10 @@ class AppController(
                 _state.value = _state.value.copy(
                     selectedVaultId = vaultId,
                     activities = emptyList(),
+                    devices = emptyList(),
+                    pairingInvitation = null,
                     conflict = null,
+                    conflictSnapshot = null,
                 )
                 loadCachedSelectedLocked()
             }
@@ -537,7 +643,6 @@ class AppController(
         _state.value = _state.value.copy(
             message = null,
             error = null,
-            conflict = null,
         )
     }
 
@@ -611,12 +716,18 @@ class AppController(
             }
             val pendingChanges = repository.pendingCount(updatedSession.vaultId)
             val conflictChanges = repository.conflictCount(updatedSession.vaultId)
+            val conflictSnapshot = if (conflictChanges > 0) {
+                repository.firstConflictSnapshot(updatedSession)
+            } else {
+                null
+            }
             _state.value = _state.value.copy(
                 sessions = sessions,
                 activities = activities,
                 lastSyncAt = Clock.System.now().toString(),
                 pendingChanges = pendingChanges,
                 conflictChanges = conflictChanges,
+                conflictSnapshot = conflictSnapshot,
                 syncing = false,
                 message = if (announce) {
                     if (pendingChanges == 0) "Gesynchroniseerd" else "$pendingChanges wijziging(en) wachten op synchronisatie"
@@ -668,11 +779,22 @@ class AppController(
             " Het opnieuw ophalen van de serverversie is ook mislukt."
         }
 
+        val snapshot = exception.recordId?.let { recordId ->
+            _state.value.selectedSession?.let { session ->
+                repository.conflictSnapshot(session, recordId)
+            }
+        }
+
         _state.value = _state.value.copy(
             conflict = conflict,
+            conflictSnapshot = snapshot,
             message = null,
-            error = "Synchronisatieconflict: dit item is ondertussen op een ander apparaat gewijzigd. " +
-                "Jouw wijziging is niet opgeslagen." + revisionText + refreshText,
+            error = if (snapshot == null) {
+                "Synchronisatieconflict: dit item is ondertussen op een ander apparaat gewijzigd." +
+                    revisionText + refreshText
+            } else {
+                null
+            },
         )
     }
 

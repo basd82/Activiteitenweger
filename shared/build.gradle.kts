@@ -52,6 +52,8 @@ kotlin {
             implementation(libs.cryptography.random)
             implementation(libs.kvault)
             implementation(libs.filekit.core)
+            implementation(libs.qrose)
+            implementation(libs.kscan)
 
             implementation(libs.kexcel)
         }
