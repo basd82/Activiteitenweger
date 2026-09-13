@@ -8,9 +8,10 @@
     <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
     <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
     <key>CFBundlePackageType</key><string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
-    <key>CFBundleShortVersionString</key><string>0.2.2</string>
-    <key>CFBundleVersion</key><string>12</string>
+    <key>CFBundleShortVersionString</key><string>0.3.0</string>
+    <key>CFBundleVersion</key><string>13</string>
     <key>LSRequiresIPhoneOS</key><true/>
+    <key>NSCameraUsageDescription</key><string>De camera wordt alleen gebruikt om een Activiteitenweger-koppelcode te scannen.</string>
     <key>CADisableMinimumFrameDurationOnPhone</key><true/>
     <key>UILaunchScreen</key><dict/>
     <key>UISupportedInterfaceOrientations</key>
