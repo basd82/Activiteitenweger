@@ -750,6 +750,15 @@ private fun ShareScreen(state: AppUiState) {
 private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showLicense by remember { mutableStateOf(false) }
+    var showExcelImport by remember { mutableStateOf(false) }
+    var importYear by remember {
+        mutableStateOf(
+            Clock.System.now()
+                .toLocalDateTime(TimeZone.currentSystemDefault())
+                .year
+                .toString()
+        )
+    }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Instellingen", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
@@ -765,6 +774,32 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         Spacer(Modifier.height(12.dp))
         Button(onClick = controller::syncCurrent, enabled = !state.busy) { Text("Nu synchroniseren") }
         Spacer(Modifier.height(20.dp))
+        Text("Excel import / export", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Exporteer het huidige profiel naar hetzelfde dagschema-formaat of importeer een bestaand .xlsx-bestand."
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = controller::exportExcel,
+                enabled = !state.busy,
+            ) {
+                Text("Excel exporteren")
+            }
+            OutlinedButton(
+                onClick = { showExcelImport = true },
+                enabled = !state.busy && state.canWrite,
+            ) {
+                Text("Excel importeren")
+            }
+        }
+        if (!state.canWrite) {
+            Text(
+                "Importeren is niet beschikbaar voor een alleen-lezen profiel.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Spacer(Modifier.height(20.dp))
         Text("Gebruik", style = MaterialTheme.typography.titleMedium)
         Text(
             "De Activiteitenweger is een hulpmiddel voor registratie en inzicht. Scores zijn geen medische beoordeling " +
@@ -779,6 +814,44 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     }
     if (showLicense) {
         LicenseDialog(onDismiss = { showLicense = false })
+    }
+
+    if (showExcelImport) {
+        val parsedYear = importYear.toIntOrNull()
+        AlertDialog(
+            onDismissRequest = { showExcelImport = false },
+            title = { Text("Excel importeren") },
+            text = {
+                Column {
+                    Text(
+                        "Oudere dagschema's hebben geen jaartal in de bladnaam. " +
+                            "Kies het jaar dat daarvoor gebruikt moet worden."
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = importYear,
+                        onValueChange = { importYear = it.filter(Char::isDigit).take(4) },
+                        label = { Text("Jaar") },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val year = requireNotNull(parsedYear)
+                        showExcelImport = false
+                        controller.importExcel(year)
+                    },
+                    enabled = parsedYear != null && parsedYear in 1900..2200,
+                ) {
+                    Text("Bestand kiezen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExcelImport = false }) { Text("Annuleer") }
+            },
+        )
     }
 
     if (confirmDelete) {
