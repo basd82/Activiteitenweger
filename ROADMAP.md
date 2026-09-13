@@ -15,7 +15,6 @@
 
 ## App
 
-- categorieën en standaardactiviteiten als één end-to-end versleuteld profielinstellingen-record synchroniseren; wijzigingen moeten op alle gekoppelde apparaten beschikbaar komen;
 - QR scanner/generator en OS share sheet (WhatsApp/Telegram/Signal/Mail/etc.);
 - handmatige invoer/correctie van start- en eindtijd;
 - weekgrafieken en dagvergelijking;
