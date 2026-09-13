@@ -617,7 +617,7 @@ private fun TimeChooserDialog(
 @Composable
 private fun HistoryScreen(state: AppUiState, controller: AppController) {
     var editingItem by remember { mutableStateOf<ActivityItem?>(null) }
-    var selectedDate by remember(state.selectedVaultId) { mutableStateOf<LocalDate?>(null) }
+    var selectedDate by remember(state.selectedVaultId) { mutableStateOf<String?>(null) }
 
     val groups = state.activities
         .filter { it.payload.endedAt != null }
