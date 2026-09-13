@@ -118,17 +118,26 @@ class AppController(
     }
 
     fun selectVault(vaultId: String) {
-        _state.value = _state.value.copy(
-            selectedVaultId = vaultId,
-            activities = emptyList(),
-            conflict = null,
-        )
         scope.launch {
-            runSync(
-                fullRefresh = true,
-                announce = false,
-                showBusy = true,
-            )
+            _state.value = _state.value.copy(busy = true, error = null)
+            operationMutex.withLock {
+                _state.value = _state.value.copy(
+                    selectedVaultId = vaultId,
+                    activities = emptyList(),
+                    conflict = null,
+                )
+                runCatching {
+                    syncSelectedLocked(
+                        fullRefresh = true,
+                        announce = false,
+                    )
+                }.onFailure { e ->
+                    _state.value = _state.value.copy(
+                        error = e.message ?: e::class.simpleName,
+                    )
+                }
+            }
+            _state.value = _state.value.copy(busy = false)
         }
     }
 
@@ -254,7 +263,7 @@ class AppController(
         syncAfterMutationLocked()
     }
 
-    fun renameProfile(vaultId: String, label: String) = launchBusy {
+    fun renameProfile(vaultId: String, label: String) = launchBusy(conflictVaultId = vaultId) {
         val session = _state.value.sessions.first { it.vaultId == vaultId }
         val updated = repository.updateProfileSettings(
             session = session,
@@ -262,7 +271,9 @@ class AppController(
         )
         replaceSession(updated)
         _state.value = _state.value.copy(message = "Profielnaam gewijzigd")
-        syncAfterMutationLocked()
+        if (_state.value.selectedVaultId == vaultId) {
+            syncAfterMutationLocked()
+        }
     }
 
     fun saveCategory(
@@ -607,13 +618,17 @@ class AppController(
             )
         }.onFailure {
             _state.value = _state.value.copy(
+                message = null,
                 error = "De wijziging is opgeslagen, maar het ophalen van de nieuwste synchronisatiestatus is mislukt: " +
                     (it.message ?: it::class.simpleName),
             )
         }
     }
 
-    private suspend fun handleRevisionConflictLocked(exception: ApiException) {
+    private suspend fun handleRevisionConflictLocked(
+        exception: ApiException,
+        conflictVaultId: String? = null,
+    ) {
         val conflict = SyncConflictInfo(
             recordId = exception.recordId,
             currentRevision = exception.currentRevision,
@@ -622,11 +637,23 @@ class AppController(
             currentUpdatedAt = exception.currentUpdatedAt,
         )
 
+        val targetVaultId = conflictVaultId ?: _state.value.selectedVaultId
         val refreshError = runCatching {
-            syncSelectedLocked(
-                fullRefresh = false,
-                announce = false,
-            )
+            if (targetVaultId == null || targetVaultId == _state.value.selectedVaultId) {
+                syncSelectedLocked(
+                    fullRefresh = false,
+                    announce = false,
+                )
+            } else {
+                val session = repository.sessions().firstOrNull { it.vaultId == targetVaultId }
+                    ?: error("Profiel niet gevonden")
+                val (updatedSession, _) = repository.syncActivities(
+                    session = session,
+                    currentActivities = emptyList(),
+                    fullRefresh = true,
+                )
+                replaceSession(updatedSession)
+            }
         }.exceptionOrNull()
 
         val revisionText = exception.currentRevision?.let { " Serverrevision: $it." }.orEmpty()
@@ -638,6 +665,7 @@ class AppController(
 
         _state.value = _state.value.copy(
             conflict = conflict,
+            message = null,
             error = "Synchronisatieconflict: dit item is ondertussen op een ander apparaat gewijzigd. " +
                 "Jouw wijziging is niet opgeslagen." + revisionText + refreshText,
         )
@@ -659,9 +687,11 @@ class AppController(
                     announce = announce,
                 )
             }.onFailure { e ->
-                _state.value = _state.value.copy(
-                    error = e.message ?: e::class.simpleName,
-                )
+                if (showBusy || announce) {
+                    _state.value = _state.value.copy(
+                        error = e.message ?: e::class.simpleName,
+                    )
+                }
             }
         }
 
@@ -670,7 +700,10 @@ class AppController(
         }
     }
 
-    private fun launchBusy(block: suspend () -> Unit) {
+    private fun launchBusy(
+        conflictVaultId: String? = null,
+        block: suspend () -> Unit,
+    ) {
         scope.launch {
             _state.value = _state.value.copy(
                 busy = true,
@@ -683,7 +716,7 @@ class AppController(
                     block()
                 } catch (e: ApiException) {
                     if (e.isRevisionConflict) {
-                        handleRevisionConflictLocked(e)
+                        handleRevisionConflictLocked(e, conflictVaultId)
                     } else {
                         _state.value = _state.value.copy(
                             error = e.message ?: e::class.simpleName,
