@@ -51,6 +51,7 @@ kotlin {
             implementation(libs.cryptography.provider.optimal)
             implementation(libs.cryptography.random)
             implementation(libs.kvault)
+            implementation(libs.filekit.core)
 
             implementation(libs.kexcel)
         }
@@ -58,13 +59,11 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.androidx.activity.compose)
-            implementation(libs.filekit.core)
             implementation(libs.filekit.dialogs)
         }
 
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
-            implementation(libs.filekit.core)
             implementation(libs.filekit.dialogs)
         }
 
