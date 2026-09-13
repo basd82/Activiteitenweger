@@ -11,12 +11,29 @@ import net.dikkenberg.activiteitenweger.platform.initAndroidPlatform
 import net.dikkenberg.activiteitenweger.ui.ActiviteitenwegerApp
 
 class MainActivity : ComponentActivity() {
+    private lateinit var controller: AppController
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         initAndroidFileDialogs(this)
         initAndroidPlatform(applicationContext)
+        controller = AppController()
         setContent {
-            ActiviteitenwegerApp()
+            ActiviteitenwegerApp(controller)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::controller.isInitialized) {
+            controller.setAppForeground(true)
+        }
+    }
+
+    override fun onPause() {
+        if (::controller.isInitialized) {
+            controller.setAppForeground(false)
+        }
+        super.onPause()
     }
 }
