@@ -642,15 +642,27 @@ private fun LicenseDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title = { Text("GNU GPL v3.0") },
         text = {
-            Text(
-                "Copyright © 2026 Bas van den Dikkenberg.\n\n" +
-                    "Activiteitenweger is vrije software. Je mag deze software gebruiken, kopiëren, " +
-                    "wijzigen en verspreiden onder de voorwaarden van de GNU General Public License " +
-                    "versie 3.0.\n\n" +
-                    "Deze software wordt geleverd zonder enige garantie, voor zover wettelijk toegestaan.\n\n" +
-                    "Volledige licentie en broncode:\n" +
-                    "https://github.com/basd82/Activiteitenweger"
-            )
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    Text(
+                        "Copyright © 2026 Bas van den Dikkenberg.\n\n" +
+                            "Activiteitenweger is vrije software. Je mag deze software gebruiken, kopiëren, " +
+                            "wijzigen en verspreiden onder de voorwaarden van de GNU General Public License " +
+                            "versie 3.0.\n\n" +
+                            "Deze software wordt geleverd zonder enige garantie, voor zover wettelijk toegestaan.\n\n" +
+                            "Broncode: https://github.com/basd82/Activiteitenweger"
+                    )
+                }
+                item {
+                    HorizontalDivider()
+                }
+                item {
+                    Text(GPL_V3_LICENSE_TEXT, style = MaterialTheme.typography.bodySmall)
+                }
+            }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("Sluiten") }
