@@ -13,11 +13,9 @@ import com.gyanoba.kexcel.sheet.FormulaCellValue
 import com.gyanoba.kexcel.sheet.IntCellValue
 import com.gyanoba.kexcel.sheet.TextCellValue
 import com.gyanoba.kexcel.sheet.TimeCellValue
-import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
@@ -150,7 +148,7 @@ object ExcelTransfer {
                     continue
                 }
 
-                val endDate = if (endTime < startTime) date.plus(1, DateTimeUnit.DAY) else date
+                val endDate = if (endTime < startTime) LocalDate.fromEpochDays(date.toEpochDays() + 1) else date
                 imported += ExcelImportedActivity(
                     description = description,
                     category = category,
@@ -273,7 +271,7 @@ object ExcelTransfer {
     }
 
     private fun sheetName(date: LocalDate): String =
-        "${date.day} ${monthNames[date.monthNumber - 1]} ${date.year}"
+        "${date.day} ${monthNames[date.month.ordinal]} ${date.year}"
 
     private fun parseSheetDate(name: String, fallbackYear: Int): LocalDate? {
         val trimmed = name.trim()
