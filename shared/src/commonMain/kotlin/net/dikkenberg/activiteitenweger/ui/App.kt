@@ -837,8 +837,8 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
                     ActivityCard(
                         item = activity,
                         now = Clock.System.now(),
-                        canEdit = state.canWrite,
-                        canDelete = state.canWrite,
+                        canEdit = state.canWrite && activity.syncStatus != SyncStatus.CONFLICT,
+                        canDelete = state.canWrite && activity.syncStatus != SyncStatus.CONFLICT,
                         onEdit = { editingItem = activity },
                         onDelete = { controller.deleteActivity(activity) },
                     )
