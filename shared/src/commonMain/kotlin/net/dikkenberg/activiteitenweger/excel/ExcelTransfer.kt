@@ -115,51 +115,53 @@ object ExcelTransfer {
             val rows = sheet.rows
             if (rows.isEmpty()) continue
 
-            val header = rows.first()
-            val headerValues = header.map { it?.value }
+            val headerValues = rows.first().map { it?.value }
             val startColumn = findHeaderColumn(headerValues, "starttijd")
             val endColumn = findHeaderColumn(headerValues, "eindtijd")
             val descriptionColumn = findHeaderColumn(headerValues, "activiteit")
             val categoryColumn = findHeaderColumn(headerValues, "categorie")
 
-            if (startColumn == null || endColumn == null || descriptionColumn == null || categoryColumn == null) {
-                ignoredSheets++
+            if (
+                startColumn != null &&
+                endColumn != null &&
+                descriptionColumn != null &&
+                categoryColumn != null
+            ) {
+                skippedRows += importCurrentDaySheet(
+                    rows = rows,
+                    date = date,
+                    startColumn = startColumn,
+                    endColumn = endColumn,
+                    descriptionColumn = descriptionColumn,
+                    categoryColumn = categoryColumn,
+                    destination = imported,
+                )
                 continue
             }
 
-            for (row in rows.drop(1)) {
-                val startValue = row.getOrNull(startColumn)?.value
-                val endValue = row.getOrNull(endColumn)?.value
-                val descriptionValue = row.getOrNull(descriptionColumn)?.value
-                val categoryValue = row.getOrNull(categoryColumn)?.value
-
-                val description = cellText(descriptionValue).trim()
-                val categoryText = cellText(categoryValue).trim()
-                val startTime = cellTime(startValue)
-                val endTime = cellTime(endValue)
-
-                val hasAnyInput = description.isNotBlank() ||
-                    categoryText.isNotBlank() ||
-                    cellText(startValue).isNotBlank() ||
-                    cellText(endValue).isNotBlank()
-                if (!hasAnyInput) continue
-
-                val category = categoryFromText(categoryText)
-                if (description.isBlank() || category == null || startTime == null || endTime == null) {
-                    skippedRows++
-                    continue
-                }
-
-                val endDate = if (endTime < startTime) LocalDate.fromEpochDays(date.toEpochDays() + 1) else date
-                imported += ExcelImportedActivity(
-                    description = description,
-                    category = category,
-                    startDate = date,
-                    startTime = startTime,
-                    endDate = endDate,
-                    endTime = endTime,
-                )
+            val timeColumn = findHeaderColumn(headerValues, "tijdstip")
+            val legacyDescriptionColumn = findHeaderColumn(headerValues, "activiteit")
+            val legacyCategoryColumns = headerValues.mapIndexedNotNull { index, value ->
+                categoryFromText(cellText(value))?.let { category -> index to category }
             }
+
+            if (
+                timeColumn != null &&
+                legacyDescriptionColumn != null &&
+                legacyCategoryColumns.isNotEmpty()
+            ) {
+                skippedRows += importLegacyDaySheet(
+                    rows = rows,
+                    date = date,
+                    timeColumn = timeColumn,
+                    descriptionColumn = legacyDescriptionColumn,
+                    categoryColumns = legacyCategoryColumns,
+                    destination = imported,
+                )
+                continue
+            }
+
+            ignoredSheets++
         }
 
         return ExcelImportResult(
@@ -167,6 +169,136 @@ object ExcelTransfer {
             skippedRows = skippedRows,
             ignoredSheets = ignoredSheets,
         )
+    }
+
+    private fun importCurrentDaySheet(
+        rows: List<List<com.gyanoba.kexcel.sheet.Data?>>,
+        date: LocalDate,
+        startColumn: Int,
+        endColumn: Int,
+        descriptionColumn: Int,
+        categoryColumn: Int,
+        destination: MutableList<ExcelImportedActivity>,
+    ): Int {
+        var skippedRows = 0
+
+        for (row in rows.drop(1)) {
+            val startValue = row.getOrNull(startColumn)?.value
+            val endValue = row.getOrNull(endColumn)?.value
+            val descriptionValue = row.getOrNull(descriptionColumn)?.value
+            val categoryValue = row.getOrNull(categoryColumn)?.value
+
+            val description = cellText(descriptionValue).trim()
+            val categoryText = cellText(categoryValue).trim()
+            val startTime = cellTime(startValue)
+            val endTime = cellTime(endValue)
+
+            val hasAnyInput = description.isNotBlank() ||
+                categoryText.isNotBlank() ||
+                cellText(startValue).isNotBlank() ||
+                cellText(endValue).isNotBlank()
+            if (!hasAnyInput) continue
+
+            val category = categoryFromText(categoryText)
+            if (description.isBlank() || category == null || startTime == null || endTime == null) {
+                skippedRows++
+                continue
+            }
+
+            destination += importedActivity(
+                description = description,
+                category = category,
+                date = date,
+                startTime = startTime,
+                endTime = endTime,
+            )
+        }
+
+        return skippedRows
+    }
+
+    private fun importLegacyDaySheet(
+        rows: List<List<com.gyanoba.kexcel.sheet.Data?>>,
+        date: LocalDate,
+        timeColumn: Int,
+        descriptionColumn: Int,
+        categoryColumns: List<Pair<Int, ActivityCategory>>,
+        destination: MutableList<ExcelImportedActivity>,
+    ): Int {
+        var skippedRows = 0
+
+        for (row in rows.drop(1)) {
+            val timeValue = row.getOrNull(timeColumn)?.value
+            val description = cellText(row.getOrNull(descriptionColumn)?.value).trim()
+            val timeText = cellText(timeValue).trim()
+
+            val markedCategories = categoryColumns.mapNotNull { (column, category) ->
+                val marker = cellText(row.getOrNull(column)?.value).trim()
+                category.takeIf { marker.isNotBlank() }
+            }
+
+            val hasAnyInput = description.isNotBlank() || timeText.isNotBlank() || markedCategories.isNotEmpty()
+            if (!hasAnyInput) continue
+
+            val timeRange = parseLegacyTimeRange(timeValue)
+            val category = markedCategories.singleOrNull()
+            if (description.isBlank() || timeRange == null || category == null) {
+                skippedRows++
+                continue
+            }
+
+            destination += importedActivity(
+                description = description,
+                category = category,
+                date = date,
+                startTime = timeRange.first,
+                endTime = timeRange.second,
+            )
+        }
+
+        return skippedRows
+    }
+
+    private fun importedActivity(
+        description: String,
+        category: ActivityCategory,
+        date: LocalDate,
+        startTime: LocalTime,
+        endTime: LocalTime,
+    ): ExcelImportedActivity {
+        val endDate = if (endTime < startTime) {
+            LocalDate.fromEpochDays(date.toEpochDays() + 1)
+        } else {
+            date
+        }
+        return ExcelImportedActivity(
+            description = description,
+            category = category,
+            startDate = date,
+            startTime = startTime,
+            endDate = endDate,
+            endTime = endTime,
+        )
+    }
+
+    private fun parseLegacyTimeRange(value: CellValue?): Pair<LocalTime, LocalTime>? {
+        val text = cellText(value).trim()
+        val match = Regex(
+            """^[±~]?\s*(\d{1,2}):(\d{2})\s*[–—-]\s*(\d{1,2}):(\d{2})$"""
+        ).matchEntire(text) ?: return null
+
+        val start = safeTime(
+            hour = match.groupValues[1].toInt(),
+            minute = match.groupValues[2].toInt(),
+            second = 0,
+        ) ?: return null
+        val end = safeTime(
+            hour = match.groupValues[3].toInt(),
+            minute = match.groupValues[4].toInt(),
+            second = 0,
+        ) ?: return null
+
+        return start to end
     }
 
     private fun writeDaySheet(
