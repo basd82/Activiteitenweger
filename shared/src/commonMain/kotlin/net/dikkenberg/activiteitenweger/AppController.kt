@@ -106,11 +106,8 @@ class AppController(
                 operationMutex.withLock {
                     loadCachedSelectedLocked()
                 }
-                runSync(
-                    fullRefresh = true,
-                    announce = false,
-                    showBusy = true,
-                )
+                // Cache is direct beschikbaar; netwerk-sync mag de UI niet blokkeren.
+                syncCurrentSilently()
             }
         }
     }
@@ -128,6 +125,9 @@ class AppController(
 
     fun selectVault(vaultId: String) {
         scope.launch {
+            // Voorkom dat een sync van het vorige profiel na de wissel nog UI-state terugschrijft.
+            automaticSyncJob?.cancelAndJoin()
+
             _state.value = _state.value.copy(busy = true, error = null)
             operationMutex.withLock {
                 _state.value = _state.value.copy(
@@ -136,18 +136,11 @@ class AppController(
                     conflict = null,
                 )
                 loadCachedSelectedLocked()
-                runCatching {
-                    syncSelectedLocked(
-                        fullRefresh = true,
-                        announce = false,
-                    )
-                }.onFailure {
-                    _state.value = _state.value.copy(
-                        message = "Offline: lokale gegevens worden getoond. Synchronisatie volgt automatisch zodra internet terug is.",
-                    )
-                }
             }
             _state.value = _state.value.copy(busy = false)
+
+            // Netwerk volgt los; het gekozen profiel is al direct lokaal bruikbaar.
+            syncCurrentSilently()
         }
     }
 
