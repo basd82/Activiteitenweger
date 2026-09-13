@@ -183,7 +183,6 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
     val todayActivities = state.activities.filter { it.payload.localDate() == todayKey }
     val score = today.sumOf { it.payload.points() }
     val activityListState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val scrollScope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text(state.selectedSession?.label ?: "Vandaag", style = MaterialTheme.typography.headlineMedium)
@@ -241,30 +240,10 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Activiteiten vandaag", style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        scrollScope.launch {
-                            activityListState.animateScrollToItem(0)
-                        }
-                    },
-                    enabled = todayActivities.isNotEmpty() && activityListState.canScrollBackward,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                ) {
-                    Text("↑")
-                }
-                OutlinedButton(
-                    onClick = {
-                        scrollScope.launch {
-                            activityListState.animateScrollToItem(todayActivities.lastIndex)
-                        }
-                    },
-                    enabled = todayActivities.isNotEmpty() && activityListState.canScrollForward,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                ) {
-                    Text("↓")
-                }
-            }
+            LazyListScrollButtons(
+                state = activityListState,
+                itemCount = todayActivities.size,
+            )
         }
         Spacer(Modifier.height(8.dp))
         if (todayActivities.isEmpty()) {
@@ -673,12 +652,14 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
 
     val effectiveSelectedDate = selectedDate
         ?.takeIf { selected -> groups.any { it.key == selected } }
-        ?: groups.firstOrNull()?.key
+    val historyListState = androidx.compose.foundation.lazy.rememberLazyListState()
 
-    androidx.compose.foundation.lazy.LazyColumn(
-        Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        androidx.compose.foundation.lazy.LazyColumn(
+            state = historyListState,
+            modifier = Modifier.fillMaxSize().padding(16.dp).padding(end = 56.dp, bottom = 72.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         item {
             Text("Historie", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(4.dp))
@@ -699,7 +680,7 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
             val selected = date == effectiveSelectedDate
             item {
                 ElevatedCard(
-                    onClick = { selectedDate = date },
+                    onClick = { selectedDate = if (selected) null else date },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -756,6 +737,15 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
                 item { Spacer(Modifier.height(8.dp)) }
             }
         }
+
+        LazyListScrollButtons(
+            state = historyListState,
+            itemCount = groups.size,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp),
+            vertical = true,
+        )
     }
 
     editingItem?.let { item ->
@@ -885,6 +875,7 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var editingCategory by remember { mutableStateOf<ActivityCategory?>(null) }
     var addingCategory by remember { mutableStateOf(false) }
     var deletingCategory by remember { mutableStateOf<ActivityCategory?>(null) }
+    val settingsScrollState = rememberScrollState()
     var importYear by remember {
         mutableStateOf(
             Clock.System.now()
@@ -893,12 +884,14 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
                 .toString()
         )
     }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(settingsScrollState)
+                .padding(16.dp)
+                .padding(end = 56.dp, bottom = 72.dp)
+        ) {
         Text("Instellingen", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
         Text("Server: ${state.health}")
@@ -1007,6 +1000,13 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
                 Text("Deze Activiteitenweger volledig verwijderen")
             }
         }
+
+        ScrollStateButtons(
+            state = settingsScrollState,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp),
+        )
     }
     if (showLicense) {
         LicenseDialog(onDismiss = { showLicense = false })
@@ -1201,6 +1201,91 @@ private fun LicenseDialog(onDismiss: () -> Unit) {
             TextButton(onClick = onDismiss) { Text("Sluiten") }
         },
     )
+}
+
+@Composable
+private fun LazyListScrollButtons(
+    state: androidx.compose.foundation.lazy.LazyListState,
+    itemCount: Int,
+    modifier: Modifier = Modifier,
+    vertical: Boolean = false,
+) {
+    val scope = rememberCoroutineScope()
+    val content = @Composable {
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    state.animateScrollToItem(0)
+                }
+            },
+            enabled = itemCount > 0 && state.canScrollBackward,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        ) {
+            Text("↑")
+        }
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    state.animateScrollToItem((itemCount - 1).coerceAtLeast(0))
+                }
+            },
+            enabled = itemCount > 0 && state.canScrollForward,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        ) {
+            Text("↓")
+        }
+    }
+
+    if (vertical) {
+        Column(
+            modifier = modifier,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            content()
+        }
+    } else {
+        Row(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun ScrollStateButtons(
+    state: androidx.compose.foundation.ScrollState,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    state.animateScrollTo(0)
+                }
+            },
+            enabled = state.value > 0,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        ) {
+            Text("↑")
+        }
+        OutlinedButton(
+            onClick = {
+                scope.launch {
+                    state.animateScrollTo(state.maxValue)
+                }
+            },
+            enabled = state.value < state.maxValue,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+        ) {
+            Text("↓")
+        }
+    }
 }
 
 @Composable
