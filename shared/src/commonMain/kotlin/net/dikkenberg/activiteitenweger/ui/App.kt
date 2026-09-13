@@ -573,6 +573,7 @@ private fun ShareScreen(state: AppUiState) {
 @Composable
 private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var showLicense by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Instellingen", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
@@ -582,6 +583,9 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         Text("App", style = MaterialTheme.typography.titleMedium)
         Text("Versie ${appVersionName()} (build ${appBuildNumber()})")
         Text("Copyright © 2026 Bas van den Dikkenberg")
+        Text("Licentie: GNU General Public License v3.0")
+        Text("Broncode: github.com/basd82/Activiteitenweger")
+        TextButton(onClick = { showLicense = true }) { Text("Licentie-informatie") }
         Spacer(Modifier.height(12.dp))
         Button(onClick = controller::syncCurrent, enabled = !state.busy) { Text("Nu synchroniseren") }
         Spacer(Modifier.height(20.dp))
@@ -597,6 +601,27 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
             }
         }
     }
+    if (showLicense) {
+        AlertDialog(
+            onDismissRequest = { showLicense = false },
+            title = { Text("GNU GPL v3.0") },
+            text = {
+                Text(
+                    "Copyright © 2026 Bas van den Dikkenberg.\n\n" +
+                        "Activiteitenweger is vrije software. Je mag deze software gebruiken, kopiëren, " +
+                        "wijzigen en verspreiden onder de voorwaarden van de GNU General Public License " +
+                        "versie 3.0.\n\n" +
+                        "Deze software wordt geleverd zonder enige garantie, voor zover wettelijk toegestaan.\n\n" +
+                        "Volledige licentie en broncode:\n" +
+                        "https://github.com/basd82/Activiteitenweger"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showLicense = false }) { Text("Sluiten") }
+            },
+        )
+    }
+
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
