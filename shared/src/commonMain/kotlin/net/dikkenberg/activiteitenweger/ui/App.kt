@@ -790,12 +790,14 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
             Button(
                 onClick = controller::exportExcel,
                 enabled = !state.busy,
+                modifier = Modifier.weight(1f),
             ) {
                 Text("Excel exporteren")
             }
             OutlinedButton(
                 onClick = { showExcelImport = true },
                 enabled = !state.busy && state.canWrite,
+                modifier = Modifier.weight(1f),
             ) {
                 Text("Excel importeren")
             }
