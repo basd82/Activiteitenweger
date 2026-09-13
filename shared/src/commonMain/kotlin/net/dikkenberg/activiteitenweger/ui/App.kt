@@ -781,34 +781,51 @@ private fun ProfilesScreen(state: AppUiState, controller: AppController) {
     var newProfile by remember { mutableStateOf(false) }
     var editingVaultId by remember { mutableStateOf<String?>(null) }
     var editingLabel by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Profielen / cliënten", style = MaterialTheme.typography.headlineMedium)
-        Text("Eén app-installatie kan meerdere versleutelde vaults beheren.")
-        Spacer(Modifier.height(12.dp))
-        state.sessions.forEach { session ->
-            ElevatedCard(
-                onClick = { controller.selectVault(session.vaultId) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            ) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column {
-                        Text(session.label, style = MaterialTheme.typography.titleMedium)
-                        Text(if (session.owner) "Eigen profiel" else "Gekoppeld profiel")
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(session.access.name)
-                        TextButton(
-                            onClick = {
-                                editingVaultId = session.vaultId
-                                editingLabel = session.label
-                            }
-                        ) { Text("Naam wijzigen") }
+    val profilesScrollState = rememberScrollState()
+
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(profilesScrollState)
+                .padding(16.dp)
+                .padding(end = 56.dp, bottom = 72.dp)
+        ) {
+            Text("Profielen / cliënten", style = MaterialTheme.typography.headlineMedium)
+            Text("Eén app-installatie kan meerdere versleutelde vaults beheren.")
+            Spacer(Modifier.height(12.dp))
+            state.sessions.forEach { session ->
+                ElevatedCard(
+                    onClick = { controller.selectVault(session.vaultId) },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text(session.label, style = MaterialTheme.typography.titleMedium)
+                            Text(if (session.owner) "Eigen profiel" else "Gekoppeld profiel")
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(session.access.name)
+                            TextButton(
+                                onClick = {
+                                    editingVaultId = session.vaultId
+                                    editingLabel = session.label
+                                }
+                            ) { Text("Naam wijzigen") }
+                        }
                     }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = { newProfile = true }) { Text("Nieuw eigen profiel") }
         }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = { newProfile = true }) { Text("Nieuw eigen profiel") }
+
+        ScrollStateButtons(
+            state = profilesScrollState,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp),
+        )
     }
     editingVaultId?.let { vaultId ->
         AlertDialog(
