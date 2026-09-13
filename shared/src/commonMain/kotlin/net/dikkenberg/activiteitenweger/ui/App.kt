@@ -600,32 +600,97 @@ private fun TimeChooserDialog(
 @Composable
 private fun HistoryScreen(state: AppUiState, controller: AppController) {
     var editingItem by remember { mutableStateOf<ActivityItem?>(null) }
+    var selectedDate by remember(state.selectedVaultId) { mutableStateOf<LocalDate?>(null) }
+
     val groups = state.activities
         .filter { it.payload.endedAt != null }
         .groupBy { it.payload.localDate() }
         .entries
         .sortedByDescending { it.key }
+
+    val effectiveSelectedDate = selectedDate
+        ?.takeIf { selected -> groups.any { it.key == selected } }
+        ?: groups.firstOrNull()?.key
+
     androidx.compose.foundation.lazy.LazyColumn(
         Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        groups.forEach { (date, items) ->
+        item {
+            Text("Historie", style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Kies een dag om de activiteiten en de eindstand van die dag te bekijken.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        if (groups.isEmpty()) {
             item {
-                Text(
-                    "$date · ${formatPoints(items.sumOf { it.payload.points() })} punten",
-                    style = MaterialTheme.typography.titleMedium,
-                )
+                Text("Er zijn nog geen afgeronde activiteiten.")
             }
-            items(items.size) { index ->
-                val activity = items[index]
-                ActivityCard(
-                    item = activity,
-                    now = Clock.System.now(),
-                    canEdit = state.canWrite,
-                    canDelete = state.canWrite,
-                    onEdit = { editingItem = activity },
-                    onDelete = { controller.deleteActivity(activity) },
-                )
+        }
+
+        groups.forEach { (date, dayItems) ->
+            val selected = date == effectiveSelectedDate
+            item {
+                ElevatedCard(
+                    onClick = { selectedDate = date },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column {
+                                Text(date.toString(), style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "${dayItems.size} ${if (dayItems.size == 1) "activiteit" else "activiteiten"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            if (selected) {
+                                Text("Geselecteerd", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+
+                        if (selected) {
+                            Spacer(Modifier.height(12.dp))
+                            HorizontalDivider()
+                            Spacer(Modifier.height(12.dp))
+                            Text("Eindstand", style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                formatPoints(dayItems.sumOf { it.payload.points() }),
+                                style = MaterialTheme.typography.headlineLarge,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (selected) {
+                item {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Activiteiten op $date",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                items(dayItems.size) { index ->
+                    val activity = dayItems[index]
+                    ActivityCard(
+                        item = activity,
+                        now = Clock.System.now(),
+                        canEdit = state.canWrite,
+                        canDelete = state.canWrite,
+                        onEdit = { editingItem = activity },
+                        onDelete = { controller.deleteActivity(activity) },
+                    )
+                }
+                item { Spacer(Modifier.height(8.dp)) }
             }
         }
     }
