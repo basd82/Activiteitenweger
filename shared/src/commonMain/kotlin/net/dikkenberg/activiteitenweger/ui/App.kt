@@ -4,6 +4,8 @@
 package net.dikkenberg.activiteitenweger.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -759,7 +761,12 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
                 .toString()
         )
     }
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
         Text("Instellingen", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
         Text("Server: ${state.health}")
