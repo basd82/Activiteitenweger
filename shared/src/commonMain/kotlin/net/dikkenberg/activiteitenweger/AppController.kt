@@ -142,6 +142,16 @@ class AppController(
         _state.value = _state.value.copy(pairingInvitation = null)
     }
 
+    fun revokePairingInvitation() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val invitation = requireNotNull(_state.value.pairingInvitation)
+        repository.revokePairingInvitation(session, invitation.inviteId)
+        _state.value = _state.value.copy(
+            pairingInvitation = null,
+            message = "Koppelcode ingetrokken",
+        )
+    }
+
     fun claimPairing(codeOrQr: String) = launchBusy {
         val session = repository.claimPairing(codeOrQr)
         _state.value = _state.value.copy(
