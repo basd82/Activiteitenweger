@@ -11,6 +11,9 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 - versleutelt activiteiten lokaal met XChaCha20-Poly1305 voordat ze naar de server gaan;
 - ondertekent records volgens `AW-RECORD-V1`;
 - ondersteunt start activiteit / klaar met activiteit;
+- ondersteunt handmatig activiteiten invoeren met start- en einddatum/tijd;
+- ondersteunt afgeronde activiteiten wijzigen en verwijderen;
+- ondersteunt profielnamen lokaal wijzigen;
 - start- en eindtijd worden automatisch vastgelegd;
 - rekent punten proportioneel uit: Ontspanning -1, Licht +1, Gemiddeld +2, Zwaar +3 per 30 minuten;
 - synchroniseert records en tombstones met de bestaande server-API;
