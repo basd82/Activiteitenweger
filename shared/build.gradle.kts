@@ -51,14 +51,20 @@ kotlin {
             implementation(libs.cryptography.provider.optimal)
             implementation(libs.cryptography.random)
             implementation(libs.kvault)
+
+            implementation(libs.kexcel)
         }
 
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.filekit.core)
+            implementation(libs.filekit.dialogs)
         }
 
         iosMain.dependencies {
             implementation(libs.ktor.client.darwin)
+            implementation(libs.filekit.core)
+            implementation(libs.filekit.dialogs)
         }
 
         commonTest.dependencies {
