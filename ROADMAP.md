@@ -15,7 +15,7 @@
 
 ## App
 
-- persistente versleutelde lokale cache + outbox voor volledig offline registreren;
+- ✅ persistente versleutelde lokale cache + outbox voor offline registreren (0.2.1);
 - expliciete conflictresolver met keuze tussen lokale en serverversie;
 - QR scanner/generator en OS share sheet (WhatsApp/Telegram/Signal/Mail/etc.);
 - handmatige invoer/correctie van start- en eindtijd;
