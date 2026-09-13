@@ -74,11 +74,26 @@ class VaultRepository(
         return updateProfileSettings(session)
     }
 
-    suspend fun loadAllActivities(session: VaultSession): Pair<VaultSession, List<ActivityItem>> {
-        var cursor = 0L
-        var current = session
+    suspend fun loadAllActivities(session: VaultSession): Pair<VaultSession, List<ActivityItem>> =
+        syncActivities(
+            session = session,
+            currentActivities = emptyList(),
+            fullRefresh = true,
+        )
+
+    suspend fun syncActivities(
+        session: VaultSession,
+        currentActivities: List<ActivityItem>,
+        fullRefresh: Boolean = false,
+    ): Pair<VaultSession, List<ActivityItem>> {
+        var cursor = if (fullRefresh) 0L else session.cursor
+        var current = if (fullRefresh) session.copy(cursor = 0) else session
         var settingsSeen = false
-        val latest = linkedMapOf<String, ActivityItem>()
+        val latest = linkedMapOf<String, ActivityItem>().apply {
+            if (!fullRefresh) {
+                currentActivities.forEach { put(it.recordId, it) }
+            }
+        }
 
         do {
             val response = api.sync(current, cursor, 500)
@@ -122,7 +137,11 @@ class VaultRepository(
                     nonce = record.nonce,
                     ciphertext = record.ciphertext,
                 )
-                latest[record.recordId] = ActivityItem(record.recordId, record.revision, payload)
+                latest[record.recordId] = ActivityItem(
+                    recordId = record.recordId,
+                    revision = record.revision,
+                    payload = payload,
+                )
             }
 
             cursor = response.nextCursor
@@ -130,9 +149,16 @@ class VaultRepository(
 
         current = current.copy(cursor = cursor)
 
+        // A full refresh is used after app start/profile switch because activities
+        // are currently kept in memory rather than in a persistent local database.
         // Existing vaults made before synced settings were introduced are migrated
         // by publishing their current local settings once.
-        if (!settingsSeen && current.settingsRevision == 0L && current.access == AccessMode.RW) {
+        if (
+            fullRefresh &&
+            !settingsSeen &&
+            current.settingsRevision == 0L &&
+            current.access == AccessMode.RW
+        ) {
             current = updateProfileSettings(current)
         } else {
             sessions.save(current)
