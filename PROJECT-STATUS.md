@@ -1,11 +1,12 @@
 # Status van deze build
 
-**App-versie:** 0.2.1 (build 11)
+**App-versie:** 0.2.2 (build 12)
 
 **Werkende basis volgens API v1 / server 1.1.0:** vault-create, signing, encrypted record create/update/delete, persistente versleutelde lokale cache, offline outbox, incrementele cursor-sync, tombstones, revision-conflictdetectie, complete vault delete, adaptive Compose UI en secure lokale key storage.
 
 Synchronisatiegedrag:
 - lokale activiteiten worden eerst versleuteld op het apparaat opgeslagen;
+- lokale Start/Stop/Wijzig-acties hebben voorrang op een hangende automatische netwerk-sync en blijven direct bruikbaar zonder verbinding;
 - nieuwe activiteiten, stoppen, wijzigen en verwijderen werken zonder internet;
 - pending mutaties bewaren exact nonce/ciphertext/signature zodat een retry identiek is;
 - pending wijzigingen worden automatisch verstuurd zodra sync weer lukt;
