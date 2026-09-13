@@ -716,12 +716,18 @@ class AppController(
             }
             val pendingChanges = repository.pendingCount(updatedSession.vaultId)
             val conflictChanges = repository.conflictCount(updatedSession.vaultId)
+            val conflictSnapshot = if (conflictChanges > 0) {
+                repository.firstConflictSnapshot(updatedSession)
+            } else {
+                null
+            }
             _state.value = _state.value.copy(
                 sessions = sessions,
                 activities = activities,
                 lastSyncAt = Clock.System.now().toString(),
                 pendingChanges = pendingChanges,
                 conflictChanges = conflictChanges,
+                conflictSnapshot = conflictSnapshot,
                 syncing = false,
                 message = if (announce) {
                     if (pendingChanges == 0) "Gesynchroniseerd" else "$pendingChanges wijziging(en) wachten op synchronisatie"
