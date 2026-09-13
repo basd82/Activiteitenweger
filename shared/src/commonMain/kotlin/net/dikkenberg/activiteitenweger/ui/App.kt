@@ -716,6 +716,7 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
         ActivityEditorDialog(
             title = "Activiteit wijzigen",
             initialDescription = item.payload.description,
+            categories = state.categories,
             initialCategory = item.payload.category,
             initialStartDate = formatLocalDate(item.payload.startedAt),
             initialStartTime = formatLocalTime(item.payload.startedAt),
@@ -835,6 +836,9 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showLicense by remember { mutableStateOf(false) }
     var showExcelImport by remember { mutableStateOf(false) }
+    var editingCategory by remember { mutableStateOf<ActivityCategory?>(null) }
+    var addingCategory by remember { mutableStateOf(false) }
+    var deletingCategory by remember { mutableStateOf<ActivityCategory?>(null) }
     var importYear by remember {
         mutableStateOf(
             Clock.System.now()
@@ -862,6 +866,61 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         TextButton(onClick = { showLicense = true }) { Text("Licentie-informatie") }
         Spacer(Modifier.height(12.dp))
         Button(onClick = controller::syncCurrent, enabled = !state.busy) { Text("Nu synchroniseren") }
+        Spacer(Modifier.height(20.dp))
+        Text("Categorieën en punten", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "De punten worden per 30 minuten ingesteld. Nieuwe profielen starten met " +
+                "Ontspanning -1, Licht +1, Gemiddeld +2 en Zwaar +3."
+        )
+        Spacer(Modifier.height(8.dp))
+        state.categories.forEach { category ->
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(category.label, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "${signed(category.pointsPer30Minutes)} punten per 30 min",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        TextButton(
+                            onClick = { editingCategory = category },
+                            enabled = state.canWrite && !state.busy,
+                        ) {
+                            Text("Wijzig")
+                        }
+                        TextButton(
+                            onClick = { deletingCategory = category },
+                            enabled = state.canWrite && !state.busy && state.categories.size > 1,
+                        ) {
+                            Text("Verwijder")
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { addingCategory = true },
+            enabled = state.canWrite && !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Categorie toevoegen")
+        }
+        if (!state.canWrite) {
+            Text(
+                "Categorieën kunnen niet worden gewijzigd in een alleen-lezen profiel.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
         Spacer(Modifier.height(20.dp))
         Text("Excel import / export", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -905,6 +964,56 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     }
     if (showLicense) {
         LicenseDialog(onDismiss = { showLicense = false })
+    }
+
+    if (addingCategory) {
+        CategoryEditorDialog(
+            title = "Categorie toevoegen",
+            initialCategory = null,
+            onDismiss = { addingCategory = false },
+            onSave = { label, points ->
+                addingCategory = false
+                controller.saveCategory(null, label, points)
+            },
+        )
+    }
+
+    editingCategory?.let { category ->
+        CategoryEditorDialog(
+            title = "Categorie wijzigen",
+            initialCategory = category,
+            onDismiss = { editingCategory = null },
+            onSave = { label, points ->
+                editingCategory = null
+                controller.saveCategory(category.id, label, points)
+            },
+        )
+    }
+
+    deletingCategory?.let { category ->
+        AlertDialog(
+            onDismissRequest = { deletingCategory = null },
+            title = { Text("Categorie verwijderen?") },
+            text = {
+                Text(
+                    "De categorie '${category.label}' verdwijnt uit de keuzelijst. " +
+                        "Bestaande activiteiten behouden hun eerder opgeslagen categorie en punten."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deletingCategory = null
+                        controller.deleteCategory(category.id)
+                    }
+                ) {
+                    Text("Verwijderen")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingCategory = null }) { Text("Annuleer") }
+            },
+        )
     }
 
     if (showExcelImport) {
@@ -956,6 +1065,62 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuleer") } },
         )
     }
+}
+
+@Composable
+private fun CategoryEditorDialog(
+    title: String,
+    initialCategory: ActivityCategory?,
+    onDismiss: () -> Unit,
+    onSave: (String, Double) -> Unit,
+) {
+    var label by remember(initialCategory?.id) {
+        mutableStateOf(initialCategory?.label.orEmpty())
+    }
+    var pointsText by remember(initialCategory?.id) {
+        mutableStateOf(
+            initialCategory?.pointsPer30Minutes
+                ?.let(::formatPoints)
+                .orEmpty()
+        )
+    }
+    val points = pointsText.replace(',', '.').toDoubleOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Naam categorie") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = pointsText,
+                    onValueChange = { pointsText = it },
+                    label = { Text("Punten per 30 minuten") },
+                    supportingText = { Text("Negatieve en decimale waarden zijn toegestaan.") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(label, requireNotNull(points)) },
+                enabled = label.isNotBlank() && points != null && points.isFinite(),
+            ) {
+                Text("Opslaan")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
 }
 
 @Composable
