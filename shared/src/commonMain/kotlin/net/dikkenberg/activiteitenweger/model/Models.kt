@@ -121,10 +121,18 @@ data class ActivityRecordPayload(
 }
 
 @Serializable
+enum class SyncStatus {
+    SYNCED,
+    PENDING,
+    CONFLICT,
+}
+
+@Serializable
 data class ActivityItem(
     val recordId: String,
     val revision: Long,
     val payload: ActivityRecordPayload,
+    val syncStatus: SyncStatus = SyncStatus.SYNCED,
 )
 
 @Serializable

@@ -22,6 +22,7 @@ import net.dikkenberg.activiteitenweger.AppUiState
 import net.dikkenberg.activiteitenweger.model.ActivityCategory
 import net.dikkenberg.activiteitenweger.model.ActivityItem
 import net.dikkenberg.activiteitenweger.model.ActivityPreset
+import net.dikkenberg.activiteitenweger.model.SyncStatus
 import net.dikkenberg.activiteitenweger.platform.appBuildNumber
 import net.dikkenberg.activiteitenweger.platform.appVersionName
 import kotlin.math.abs
@@ -41,6 +42,15 @@ fun ActiviteitenwegerApp(controller: AppController = remember { AppController() 
     var destination by remember { mutableStateOf(Destination.TODAY) }
 
     LaunchedEffect(Unit) { controller.initialize() }
+
+    LaunchedEffect(state.initialized, state.selectedVaultId) {
+        if (state.initialized && state.selectedVaultId != null) {
+            while (true) {
+                delay(30_000)
+                controller.syncCurrentSilently()
+            }
+        }
+    }
 
     MaterialTheme {
         Surface(Modifier.fillMaxSize()) {
@@ -204,6 +214,7 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
                 Column(Modifier.padding(16.dp)) {
                     Text(active.payload.description, style = MaterialTheme.typography.titleLarge)
                     Text(active.payload.category.label)
+                    SyncStatusText(active.syncStatus)
                     Text("Gestart om ${formatLocalTime(active.payload.startedAt)}")
                     Text(formatDuration(active.payload.durationSeconds(now)), style = MaterialTheme.typography.headlineSmall)
                     Spacer(Modifier.height(12.dp))
@@ -263,8 +274,8 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
                     ActivityCard(
                         item = item,
                         now = now,
-                        canEdit = state.canWrite && item.payload.endedAt != null,
-                        canDelete = state.canWrite && item.payload.endedAt != null,
+                        canEdit = state.canWrite && item.payload.endedAt != null && item.syncStatus != SyncStatus.CONFLICT,
+                        canDelete = state.canWrite && item.payload.endedAt != null && item.syncStatus != SyncStatus.CONFLICT,
                         onEdit = { editingItem = item },
                         onDelete = { controller.deleteActivity(item) },
                     )
@@ -344,6 +355,7 @@ private fun ActivityCard(
                 Text(timeRange(item))
                 Text("${item.payload.category.label} · ${formatDuration(item.payload.durationSeconds(now))}")
                 Text("${formatPoints(item.payload.points(now))} punten", style = MaterialTheme.typography.bodySmall)
+                SyncStatusText(item.syncStatus)
             }
             Column(horizontalAlignment = Alignment.End) {
                 if (canEdit) {
@@ -354,6 +366,23 @@ private fun ActivityCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SyncStatusText(status: SyncStatus) {
+    when (status) {
+        SyncStatus.SYNCED -> Unit
+        SyncStatus.PENDING -> Text(
+            "Wacht op synchronisatie",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        SyncStatus.CONFLICT -> Text(
+            "Synchronisatieconflict",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+        )
     }
 }
 
@@ -951,8 +980,27 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         ) {
         Text("Instellingen", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(12.dp))
-        Text("Server: ${state.health}")
+        Text(
+            buildString {
+                append("Server: ").append(state.health)
+                state.serverVersion?.let { append(" · versie ").append(it) }
+            }
+        )
         Text("https://app.dikkenberg.net")
+        when {
+            state.syncing -> Text("Synchronisatie: bezig…")
+            state.lastSyncAt != null -> Text("Laatste synchronisatie: ${formatLocalTime(state.lastSyncAt)}")
+            else -> Text("Laatste synchronisatie: nog niet")
+        }
+        if (state.pendingChanges > 0) {
+            Text("${state.pendingChanges} wijziging(en) wachten op synchronisatie")
+        }
+        if (state.conflictChanges > 0) {
+            Text(
+                "${state.conflictChanges} synchronisatieconflict(en)",
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Spacer(Modifier.height(16.dp))
         Text("App", style = MaterialTheme.typography.titleMedium)
         Text("Versie ${appVersionName()} (build ${appBuildNumber()})")

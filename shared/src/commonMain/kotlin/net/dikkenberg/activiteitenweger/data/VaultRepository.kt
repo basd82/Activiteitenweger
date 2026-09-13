@@ -16,10 +16,18 @@ import net.dikkenberg.activiteitenweger.model.ActivityItem
 import net.dikkenberg.activiteitenweger.model.ActivityPreset
 import net.dikkenberg.activiteitenweger.model.ActivityRecordPayload
 import net.dikkenberg.activiteitenweger.model.ProfileSettingsPayload
+import net.dikkenberg.activiteitenweger.model.SyncStatus
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
+import net.dikkenberg.activiteitenweger.network.ApiException
 import net.dikkenberg.activiteitenweger.network.CreateVaultRequest
+import net.dikkenberg.activiteitenweger.network.RemoteRecord
 import net.dikkenberg.activiteitenweger.network.UpsertRecordRequest
+import net.dikkenberg.activiteitenweger.storage.CachedEncryptedRecord
+import net.dikkenberg.activiteitenweger.storage.LocalSyncStore
+import net.dikkenberg.activiteitenweger.storage.LocalVaultSyncState
+import net.dikkenberg.activiteitenweger.storage.PendingMutationState
+import net.dikkenberg.activiteitenweger.storage.PendingRecordMutation
 import net.dikkenberg.activiteitenweger.storage.SessionStore
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
@@ -29,6 +37,7 @@ class VaultRepository(
     private val crypto: CryptoService,
     private val sessions: SessionStore,
     private val json: Json = api.json,
+    private val localSyncStore: LocalSyncStore = LocalSyncStore(json),
 ) {
     fun sessions(): List<VaultSession> = sessions.list()
 
@@ -74,71 +83,90 @@ class VaultRepository(
         return updateProfileSettings(session)
     }
 
-    suspend fun loadAllActivities(session: VaultSession): Pair<VaultSession, List<ActivityItem>> {
-        var cursor = 0L
-        var current = session
-        var settingsSeen = false
-        val latest = linkedMapOf<String, ActivityItem>()
+    suspend fun loadCachedActivities(
+        session: VaultSession,
+    ): Pair<VaultSession, List<ActivityItem>> {
+        val state = localSyncStore.load(session.vaultId)
+        val updated = applyProfileSettingsFromState(
+            session.copy(cursor = state.cursor),
+            state,
+        )
+        return updated to activitiesFromState(updated, state)
+    }
 
-        do {
-            val response = api.sync(current, cursor, 500)
-            current = current.copy(keyEpoch = response.currentKeyEpoch)
+    suspend fun pendingCount(vaultId: String): Int =
+        localSyncStore.load(vaultId).pending.count { it.state == PendingMutationState.PENDING }
 
-            for (record in response.records) {
-                if (record.recordId == settingsRecordId(current)) {
-                    settingsSeen = true
+    suspend fun conflictCount(vaultId: String): Int =
+        localSyncStore.load(vaultId).pending.count { it.state == PendingMutationState.CONFLICT }
 
-                    if (!record.deleted && record.ciphertext != null && record.nonce != null) {
-                        val settings = decryptProfileSettings(
-                            session = current,
-                            recordId = record.recordId,
-                            nonce = record.nonce,
-                            ciphertext = record.ciphertext,
-                        )
-                        val categories = settings.categories.ifEmpty { ActivityCategory.defaults }
-                        val categoryIds = categories.mapTo(mutableSetOf()) { it.id }
-                        current = current.copy(
-                            label = settings.label.trim().ifBlank { current.label },
-                            categories = categories,
-                            activityPresets = settings.activityPresets.filter {
-                                it.categoryId in categoryIds
-                            },
-                            settingsRevision = record.revision,
-                        )
-                    } else {
-                        current = current.copy(settingsRevision = record.revision)
-                    }
-                    continue
-                }
+    suspend fun loadAllActivities(session: VaultSession): Pair<VaultSession, List<ActivityItem>> =
+        syncActivities(
+            session = session,
+            currentActivities = emptyList(),
+            fullRefresh = true,
+        )
 
-                if (record.deleted || record.ciphertext == null || record.nonce == null) {
-                    latest.remove(record.recordId)
-                    continue
-                }
+    suspend fun syncActivities(
+        session: VaultSession,
+        currentActivities: List<ActivityItem>,
+        fullRefresh: Boolean = false,
+    ): Pair<VaultSession, List<ActivityItem>> {
+        var state = localSyncStore.load(session.vaultId)
+        var current = session.copy(cursor = state.cursor)
 
-                val payload = decryptActivity(
-                    session = current,
-                    recordId = record.recordId,
-                    nonce = record.nonce,
-                    ciphertext = record.ciphertext,
-                )
-                latest[record.recordId] = ActivityItem(record.recordId, record.revision, payload)
-            }
-
-            cursor = response.nextCursor
-        } while (response.hasMore)
-
-        current = current.copy(cursor = cursor)
-
-        // Existing vaults made before synced settings were introduced are migrated
-        // by publishing their current local settings once.
-        if (!settingsSeen && current.settingsRevision == 0L && current.access == AccessMode.RW) {
-            current = updateProfileSettings(current)
-        } else {
-            sessions.save(current)
+        // Existing installations do not have a cache yet. Only in that case does
+        // a requested full refresh start from cursor 0. Once the encrypted cache
+        // exists, the persisted cursor is authoritative across app restarts.
+        if (
+            fullRefresh &&
+            state.cursor == 0L &&
+            state.records.isEmpty() &&
+            state.pending.isEmpty()
+        ) {
+            state = LocalVaultSyncState()
         }
 
-        return current to latest.values.sortedByDescending { it.payload.startedAt }
+        val pulled = pullRemote(current, state)
+        current = pulled.first
+        state = pulled.second
+
+        if (
+            state.records.none { it.recordId == settingsRecordId(current) } &&
+            state.pending.none { it.recordId == settingsRecordId(current) } &&
+            current.settingsRevision == 0L &&
+            current.access == AccessMode.RW
+        ) {
+            current = queueProfileSettingsMutation(
+                session = current,
+                label = current.label,
+                categories = current.categories,
+                activityPresets = current.activityPresets,
+            )
+            state = localSyncStore.load(current.vaultId)
+        }
+
+        val pushed = pushPending(current, state)
+        current = pushed.session
+        state = pushed.state
+
+        if (pushed.didPush) {
+            val afterPush = pullRemote(current, state)
+            current = afterPush.first
+            state = afterPush.second
+        }
+
+        current = applyProfileSettingsFromState(
+            current.copy(cursor = state.cursor),
+            state,
+        )
+        sessions.save(current)
+
+        if (pushed.conflict != null) {
+            throw pushed.conflict
+        }
+
+        return current to activitiesFromState(current, state)
     }
 
     suspend fun startActivity(
@@ -161,40 +189,85 @@ class VaultRepository(
         endedAt: String?,
     ): ActivityItem {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
-        val item = ActivityItem(
-            recordId = Uuid.random().toString(),
-            revision = 1,
-            payload = ActivityRecordPayload(
-                startedAt = startedAt,
-                endedAt = endedAt,
-                description = description.trim().ifBlank { "Activiteit" },
-                category = category,
-            ),
+
+        val recordId = Uuid.random().toString()
+        val payload = ActivityRecordPayload(
+            startedAt = startedAt,
+            endedAt = endedAt,
+            description = description.trim().ifBlank { "Activiteit" },
+            category = category,
         )
-        put(session, item, deleted = false)
-        return item
+        val pending = queueEncryptedMutation(
+            session = session,
+            recordId = recordId,
+            fallbackBaseRevision = 0,
+            plaintext = json.encodeToString(payload).encodeToByteArray(),
+            deleted = false,
+        ) ?: error("Nieuwe activiteit kon niet lokaal worden opgeslagen")
+
+        return ActivityItem(
+            recordId = recordId,
+            revision = pending.revision,
+            payload = payload,
+            syncStatus = SyncStatus.PENDING,
+        )
     }
 
     suspend fun stopActivity(session: VaultSession, item: ActivityItem): ActivityItem {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
-        val updated = item.copy(
-            revision = item.revision + 1,
-            payload = item.payload.copy(endedAt = Clock.System.now().toString()),
+        check(item.syncStatus != SyncStatus.CONFLICT) {
+            "Los eerst het synchronisatieconflict voor deze activiteit op"
+        }
+
+        val payload = item.payload.copy(endedAt = Clock.System.now().toString())
+        val pending = queueEncryptedMutation(
+            session = session,
+            recordId = item.recordId,
+            fallbackBaseRevision = item.revision,
+            plaintext = json.encodeToString(payload).encodeToByteArray(),
+            deleted = false,
+        ) ?: error("Activiteit kon niet lokaal worden opgeslagen")
+
+        return item.copy(
+            revision = pending.revision,
+            payload = payload,
+            syncStatus = SyncStatus.PENDING,
         )
-        put(session, updated, deleted = false)
-        return updated
     }
 
     suspend fun updateActivity(session: VaultSession, item: ActivityItem): ActivityItem {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
-        val updated = item.copy(revision = item.revision + 1)
-        put(session, updated, deleted = false)
-        return updated
+        check(item.syncStatus != SyncStatus.CONFLICT) {
+            "Los eerst het synchronisatieconflict voor deze activiteit op"
+        }
+
+        val pending = queueEncryptedMutation(
+            session = session,
+            recordId = item.recordId,
+            fallbackBaseRevision = item.revision,
+            plaintext = json.encodeToString(item.payload).encodeToByteArray(),
+            deleted = false,
+        ) ?: error("Activiteit kon niet lokaal worden opgeslagen")
+
+        return item.copy(
+            revision = pending.revision,
+            syncStatus = SyncStatus.PENDING,
+        )
     }
 
     suspend fun deleteActivity(session: VaultSession, item: ActivityItem) {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
-        put(session, item.copy(revision = item.revision + 1), deleted = true)
+        check(item.syncStatus != SyncStatus.CONFLICT) {
+            "Los eerst het synchronisatieconflict voor deze activiteit op"
+        }
+
+        queueEncryptedMutation(
+            session = session,
+            recordId = item.recordId,
+            fallbackBaseRevision = item.revision,
+            plaintext = null,
+            deleted = true,
+        )
     }
 
     suspend fun updateProfileSettings(
@@ -202,6 +275,26 @@ class VaultRepository(
         label: String = session.label,
         categories: List<ActivityCategory> = session.categories,
         activityPresets: List<ActivityPreset> = session.activityPresets,
+    ): VaultSession =
+        queueProfileSettingsMutation(
+            session = session,
+            label = label,
+            categories = categories,
+            activityPresets = activityPresets,
+        )
+
+    suspend fun deleteVault(session: VaultSession) {
+        check(session.owner) { "Alleen de eigenaar kan de volledige vault verwijderen" }
+        api.deleteVault(session)
+        localSyncStore.remove(session.vaultId)
+        sessions.remove(session.vaultId)
+    }
+
+    private suspend fun queueProfileSettingsMutation(
+        session: VaultSession,
+        label: String,
+        categories: List<ActivityCategory>,
+        activityPresets: List<ActivityPreset>,
     ): VaultSession {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
         require(categories.isNotEmpty()) { "Er moet minimaal één categorie zijn" }
@@ -216,49 +309,52 @@ class VaultRepository(
             categories = categories,
             activityPresets = activityPresets,
         )
-        val revision = session.settingsRevision + 1
-
-        putEncryptedRecord(
+        val pending = queueEncryptedMutation(
             session = session,
             recordId = settingsRecordId(session),
-            revision = revision,
+            fallbackBaseRevision = session.settingsRevision,
             plaintext = json.encodeToString(payload).encodeToByteArray(),
             deleted = false,
-        )
+        ) ?: error("Profielinstellingen konden niet lokaal worden opgeslagen")
 
         val updated = session.copy(
             label = payload.label,
             categories = payload.categories,
             activityPresets = payload.activityPresets,
-            settingsRevision = revision,
+            settingsRevision = pending.revision,
         )
         sessions.save(updated)
         return updated
     }
 
-    suspend fun deleteVault(session: VaultSession) {
-        check(session.owner) { "Alleen de eigenaar kan de volledige vault verwijderen" }
-        api.deleteVault(session)
-        sessions.remove(session.vaultId)
-    }
-
-    private suspend fun put(session: VaultSession, item: ActivityItem, deleted: Boolean) {
-        putEncryptedRecord(
-            session = session,
-            recordId = item.recordId,
-            revision = item.revision,
-            plaintext = if (deleted) null else json.encodeToString(item.payload).encodeToByteArray(),
-            deleted = deleted,
-        )
-    }
-
-    private suspend fun putEncryptedRecord(
+    private suspend fun queueEncryptedMutation(
         session: VaultSession,
         recordId: String,
-        revision: Long,
+        fallbackBaseRevision: Long,
         plaintext: ByteArray?,
         deleted: Boolean,
-    ) {
+    ): PendingRecordMutation? {
+        var state = localSyncStore.load(session.vaultId)
+        val existing = state.pending.firstOrNull { it.recordId == recordId }
+        check(existing?.state != PendingMutationState.CONFLICT) {
+            "Dit item heeft een synchronisatieconflict"
+        }
+
+        val cached = state.records.firstOrNull { it.recordId == recordId }
+        val baseRevision = existing?.baseRevision
+            ?: cached?.revision
+            ?: fallbackBaseRevision.coerceAtLeast(0)
+
+        if (deleted && existing != null && existing.baseRevision == 0L) {
+            state = state.copy(
+                pending = state.pending.filterNot { it.recordId == recordId },
+                records = state.records.filterNot { it.recordId == recordId },
+            )
+            localSyncStore.save(session.vaultId, state)
+            return null
+        }
+
+        val revision = existing?.revision ?: (baseRevision + 1)
         val nonce = if (deleted) null else crypto.randomBytes(24)
         val ciphertext = if (deleted) {
             null
@@ -279,19 +375,287 @@ class VaultRepository(
             nonce = nonce,
             ciphertext = ciphertext,
         )
-        api.upsertRecord(
-            session,
-            UpsertRecordRequest(
-                recordId = recordId,
-                revision = revision,
-                keyEpoch = session.keyEpoch,
-                deleted = deleted,
-                ciphertext = ciphertext?.toBase64Url(),
-                nonce = nonce?.toBase64Url(),
-                recordSignature = signature.toBase64Url(),
+        val mutation = PendingRecordMutation(
+            recordId = recordId,
+            baseRevision = baseRevision,
+            revision = revision,
+            keyEpoch = session.keyEpoch,
+            deleted = deleted,
+            ciphertext = ciphertext?.toBase64Url(),
+            nonce = nonce?.toBase64Url(),
+            recordSignature = signature.toBase64Url(),
+            localChangedAt = Clock.System.now().toString(),
+        )
+
+        state = state.copy(
+            pending = state.pending.filterNot { it.recordId == recordId } + mutation,
+        )
+        localSyncStore.save(session.vaultId, state)
+        return mutation
+    }
+
+    private suspend fun pullRemote(
+        session: VaultSession,
+        initialState: LocalVaultSyncState,
+    ): Pair<VaultSession, LocalVaultSyncState> {
+        var current = session
+        var state = initialState
+        var cursor = state.cursor
+
+        do {
+            val response = api.sync(
+                session = current.copy(cursor = cursor),
+                since = cursor,
+                limit = 500,
             )
+            current = current.copy(keyEpoch = response.currentKeyEpoch)
+
+            val records = state.records.associateByTo(linkedMapOf()) { it.recordId }
+            val pending = state.pending.associateByTo(linkedMapOf()) { it.recordId }
+
+            response.records.forEach { remote ->
+                val localPending = pending[remote.recordId]
+                when {
+                    localPending == null -> {
+                        records[remote.recordId] = remote.toCachedRecord()
+                    }
+
+                    isConfirmationOfOwnWrite(current, remote, localPending) -> {
+                        records[remote.recordId] = remote.toCachedRecord()
+                        pending.remove(remote.recordId)
+                    }
+
+                    remote.revision > localPending.baseRevision -> {
+                        records[remote.recordId] = remote.toCachedRecord()
+                        pending[remote.recordId] = localPending.copy(
+                            state = PendingMutationState.CONFLICT,
+                        )
+                    }
+
+                    else -> {
+                        records[remote.recordId] = remote.toCachedRecord()
+                    }
+                }
+            }
+
+            cursor = response.nextCursor
+            state = state.copy(
+                cursor = cursor,
+                records = records.values.toList(),
+                pending = pending.values.toList(),
+            )
+
+            // Persist the page before moving the session cursor forward.
+            localSyncStore.save(current.vaultId, state)
+            sessions.save(current.copy(cursor = cursor))
+        } while (response.hasMore)
+
+        return current.copy(cursor = cursor) to state
+    }
+
+    private suspend fun pushPending(
+        session: VaultSession,
+        initialState: LocalVaultSyncState,
+    ): PushResult {
+        var state = initialState
+        var firstConflict: ApiException? = null
+        var didPush = false
+
+        val candidates = state.pending
+            .filter { it.state == PendingMutationState.PENDING }
+            .sortedBy { it.localChangedAt }
+
+        for (mutation in candidates) {
+            try {
+                api.upsertRecord(
+                    session,
+                    mutation.toRequest(),
+                )
+
+                didPush = true
+                val record = CachedEncryptedRecord(
+                    recordId = mutation.recordId,
+                    revision = mutation.revision,
+                    keyEpoch = mutation.keyEpoch,
+                    deleted = mutation.deleted,
+                    ciphertext = mutation.ciphertext,
+                    nonce = mutation.nonce,
+                    writerDeviceId = session.deviceId,
+                    recordSignature = mutation.recordSignature,
+                    updatedAt = null,
+                    deletedAt = null,
+                )
+                state = state.copy(
+                    records = state.records
+                        .filterNot { it.recordId == mutation.recordId } + record,
+                    pending = state.pending.filterNot { it.recordId == mutation.recordId },
+                )
+                localSyncStore.save(session.vaultId, state)
+            } catch (e: ApiException) {
+                if (e.isRevisionConflict) {
+                    state = state.copy(
+                        pending = state.pending.map {
+                            if (it.recordId == mutation.recordId) {
+                                it.copy(state = PendingMutationState.CONFLICT)
+                            } else {
+                                it
+                            }
+                        },
+                    )
+                    localSyncStore.save(session.vaultId, state)
+                    if (firstConflict == null) {
+                        firstConflict = e
+                    }
+                    continue
+                }
+                throw e
+            }
+        }
+
+        return PushResult(
+            session = session,
+            state = state,
+            didPush = didPush,
+            conflict = firstConflict,
         )
     }
+
+    private suspend fun activitiesFromState(
+        session: VaultSession,
+        state: LocalVaultSyncState,
+    ): List<ActivityItem> {
+        val records = state.records.associateBy { it.recordId }
+        val pending = state.pending.associateBy { it.recordId }
+        val ids = (records.keys + pending.keys)
+            .filterNot { it == settingsRecordId(session) }
+
+        return ids.mapNotNull { recordId ->
+            val localPending = pending[recordId]
+            if (localPending != null) {
+                if (localPending.deleted) {
+                    return@mapNotNull null
+                }
+                val payload = decryptActivity(
+                    session = session,
+                    recordId = recordId,
+                    nonce = requireNotNull(localPending.nonce),
+                    ciphertext = requireNotNull(localPending.ciphertext),
+                )
+                return@mapNotNull ActivityItem(
+                    recordId = recordId,
+                    revision = localPending.revision,
+                    payload = payload,
+                    syncStatus = if (localPending.state == PendingMutationState.CONFLICT) {
+                        SyncStatus.CONFLICT
+                    } else {
+                        SyncStatus.PENDING
+                    },
+                )
+            }
+
+            val record = records[recordId] ?: return@mapNotNull null
+            if (record.deleted || record.ciphertext == null || record.nonce == null) {
+                return@mapNotNull null
+            }
+            val payload = decryptActivity(
+                session = session,
+                recordId = record.recordId,
+                nonce = record.nonce,
+                ciphertext = record.ciphertext,
+            )
+            ActivityItem(
+                recordId = record.recordId,
+                revision = record.revision,
+                payload = payload,
+                syncStatus = SyncStatus.SYNCED,
+            )
+        }.sortedByDescending { it.payload.startedAt }
+    }
+
+    private suspend fun applyProfileSettingsFromState(
+        session: VaultSession,
+        state: LocalVaultSyncState,
+    ): VaultSession {
+        val recordId = settingsRecordId(session)
+        val localPending = state.pending.firstOrNull { it.recordId == recordId }
+
+        if (
+            localPending != null &&
+            !localPending.deleted &&
+            localPending.ciphertext != null &&
+            localPending.nonce != null
+        ) {
+            val payload = decryptProfileSettings(
+                session = session,
+                recordId = recordId,
+                nonce = localPending.nonce,
+                ciphertext = localPending.ciphertext,
+            )
+            return session.withSettings(payload, localPending.revision)
+        }
+
+        val record = state.records.firstOrNull { it.recordId == recordId }
+            ?: return session
+        if (record.deleted || record.ciphertext == null || record.nonce == null) {
+            return session.copy(settingsRevision = record.revision)
+        }
+
+        val payload = decryptProfileSettings(
+            session = session,
+            recordId = recordId,
+            nonce = record.nonce,
+            ciphertext = record.ciphertext,
+        )
+        return session.withSettings(payload, record.revision)
+    }
+
+    private fun VaultSession.withSettings(
+        payload: ProfileSettingsPayload,
+        revision: Long,
+    ): VaultSession {
+        val categories = payload.categories.ifEmpty { ActivityCategory.defaults }
+        val categoryIds = categories.mapTo(mutableSetOf()) { it.id }
+        return copy(
+            label = payload.label.trim().ifBlank { label },
+            categories = categories,
+            activityPresets = payload.activityPresets.filter { it.categoryId in categoryIds },
+            settingsRevision = revision,
+        )
+    }
+
+    private fun isConfirmationOfOwnWrite(
+        session: VaultSession,
+        remote: RemoteRecord,
+        pending: PendingRecordMutation,
+    ): Boolean =
+        remote.revision == pending.revision &&
+            remote.writerDeviceId == session.deviceId &&
+            remote.recordSignature == pending.recordSignature
+
+    private fun RemoteRecord.toCachedRecord(): CachedEncryptedRecord =
+        CachedEncryptedRecord(
+            recordId = recordId,
+            revision = revision,
+            keyEpoch = keyEpoch,
+            deleted = deleted,
+            ciphertext = ciphertext,
+            nonce = nonce,
+            writerDeviceId = writerDeviceId,
+            recordSignature = recordSignature,
+            updatedAt = updatedAt,
+            deletedAt = deletedAt,
+        )
+
+    private fun PendingRecordMutation.toRequest(): UpsertRecordRequest =
+        UpsertRecordRequest(
+            recordId = recordId,
+            revision = revision,
+            keyEpoch = keyEpoch,
+            deleted = deleted,
+            ciphertext = ciphertext,
+            nonce = nonce,
+            recordSignature = recordSignature,
+        )
 
     private suspend fun decryptActivity(
         session: VaultSession,
@@ -353,4 +717,11 @@ class VaultRepository(
             canonical.encodeToByteArray(),
         )
     }
+
+    private data class PushResult(
+        val session: VaultSession,
+        val state: LocalVaultSyncState,
+        val didPush: Boolean,
+        val conflict: ApiException?,
+    )
 }

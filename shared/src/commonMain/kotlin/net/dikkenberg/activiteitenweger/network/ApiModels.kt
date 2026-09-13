@@ -11,6 +11,7 @@ data class HealthResponse(
     val status: String,
     val database: String,
     val apiVersion: Int,
+    val serverVersion: String? = null,
 )
 
 @Serializable
@@ -107,4 +108,12 @@ data class DeleteVaultRequest(val confirm: String = "DELETE")
 data class DeleteVaultResponse(val status: String)
 
 @Serializable
-data class ErrorResponse(val error: String? = null)
+data class ErrorResponse(
+    val error: String? = null,
+    val recordId: String? = null,
+    val currentRevision: Long? = null,
+    val expectedRevision: Long? = null,
+    val currentDeleted: Boolean? = null,
+    val currentUpdatedAt: String? = null,
+    val currentKeyEpoch: Int? = null,
+)

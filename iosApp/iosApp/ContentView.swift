@@ -13,8 +13,16 @@ struct ComposeView: UIViewControllerRepresentable {
 }
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
         ComposeView()
             .ignoresSafeArea(.keyboard)
+            .onAppear {
+                MainViewControllerKt.setAppActive(active: true)
+            }
+            .onChange(of: scenePhase) { newPhase in
+                MainViewControllerKt.setAppActive(active: newPhase == .active)
+            }
     }
 }

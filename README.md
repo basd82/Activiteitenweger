@@ -25,6 +25,12 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 - start- en eindtijd worden automatisch vastgelegd;
 - rekent punten proportioneel uit: Ontspanning -1, Licht +1, Gemiddeld +2, Zwaar +3 per 30 minuten;
 - synchroniseert records en tombstones met de bestaande server-API;
+- bewaart een persistente lokale cache met alleen versleutelde recorddata;
+- gebruikt een offline outbox: activiteiten starten, stoppen, wijzigen en verwijderen blijft mogelijk zonder internet;
+- gebruikt na de eerste cache-opbouw de sync-cursor ook over app-herstarts heen incrementeel;
+- synchroniseert direct na eigen wijzigingen, bij terugkeer naar de app en iedere 30 seconden zolang de app actief is;
+- lokale Start/Stop/Wijzig-acties wachten nooit op een netwerkrequest; een hangende automatische sync wordt daarvoor afgebroken;
+- blokkeert gelijktijdige sync/schrijfacties lokaal en overschrijft een serverwijziging nooit blind bij `409 revision_conflict`;
 - ondersteunt meerdere lokale vault-profielen in één app-installatie;
 - verwijdert een eigen vault volledig via de server-API;
 - adaptive UI voor telefoon, tablet en Chromebook.
@@ -36,6 +42,9 @@ Categorieën, punten, profielnaam en standaardactiviteiten worden als één end-
 Pairing via QR/koppelcode, R/RW grants, self-revoke van een behandelaar, access-events en key rotation zijn in de UI/datamodellen voorbereid maar kunnen nog niet functioneel zijn totdat de server de pairing/device-grant endpoints en de many-to-many `vault_devices` migratie heeft. De app doet hier dus niet alsof het al werkt.
 
 ## Versies (13 september 2026)
+
+App-versie: **0.2.2 (build 12)**  
+Verwachte API-major: **v1**; getest met server **1.1.0**
 
 - Kotlin 2.4.20
 - Compose Multiplatform 1.11.1
@@ -93,7 +102,7 @@ Xcode roept automatisch `:shared:embedAndSignAppleFrameworkForXcode` aan.
 - Serverrecords zijn ciphertext + nonce + signature + minimale synchronisatiemetadata.
 - `allowBackup=false` staat op Android om ongewenste OS-backup van appdata te voorkomen.
 
-Zie ook `SECURITY.md` en `ROADMAP.md`.
+Zie ook `SECURITY.md`, `SYNC.md` en `ROADMAP.md`.
 
 ## Juridisch/medisch
 

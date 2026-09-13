@@ -29,7 +29,16 @@ class ApiException(
     val status: Int,
     val code: String,
     val responseBody: String,
-) : Exception("API $status: $code")
+    val recordId: String? = null,
+    val currentRevision: Long? = null,
+    val expectedRevision: Long? = null,
+    val currentDeleted: Boolean? = null,
+    val currentUpdatedAt: String? = null,
+    val currentKeyEpoch: Int? = null,
+) : Exception("API $status: $code") {
+    val isRevisionConflict: Boolean
+        get() = status == 409 && code == "revision_conflict"
+}
 
 class ApiClient(
     private val baseUrl: String = "https://app.dikkenberg.net",
@@ -133,8 +142,18 @@ class ApiClient(
 
     private fun checkResponse(status: Int, raw: String) {
         if (status in 200..299) return
-        val error = runCatching { json.decodeFromString<ErrorResponse>(raw).error }
-            .getOrNull() ?: "http_$status"
-        throw ApiException(status, error, raw)
+
+        val error = runCatching { json.decodeFromString<ErrorResponse>(raw) }.getOrNull()
+        throw ApiException(
+            status = status,
+            code = error?.error ?: "http_$status",
+            responseBody = raw,
+            recordId = error?.recordId,
+            currentRevision = error?.currentRevision,
+            expectedRevision = error?.expectedRevision,
+            currentDeleted = error?.currentDeleted,
+            currentUpdatedAt = error?.currentUpdatedAt,
+            currentKeyEpoch = error?.currentKeyEpoch,
+        )
     }
 }
