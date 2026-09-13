@@ -207,53 +207,55 @@ class AppController(
         label: String,
         pointsPer30Minutes: Double,
     ) {
-        val session = requireNotNull(_state.value.selectedSession)
-        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+        runCatching {
+            val session = requireNotNull(_state.value.selectedSession)
+            check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
 
-        val cleanLabel = label.trim()
-        require(cleanLabel.isNotBlank()) { "Vul een categorienaam in" }
-        require(pointsPer30Minutes.isFinite()) { "Vul een geldig puntenaantal in" }
+            val cleanLabel = label.trim()
+            require(cleanLabel.isNotBlank()) { "Vul een categorienaam in" }
+            require(pointsPer30Minutes.isFinite()) { "Vul een geldig puntenaantal in" }
 
-        val duplicate = session.categories.any {
-            it.id != categoryId && it.label.equals(cleanLabel, ignoreCase = true)
-        }
-        check(!duplicate) { "Er bestaat al een categorie met deze naam" }
-
-        val updatedCategory = ActivityCategory(
-            id = categoryId ?: "custom-${Uuid.random()}",
-            label = cleanLabel,
-            pointsPer30Minutes = pointsPer30Minutes,
-        )
-        val categories = if (categoryId == null) {
-            session.categories + updatedCategory
-        } else {
-            session.categories.map {
-                if (it.id == categoryId) updatedCategory else it
+            val duplicate = session.categories.any {
+                it.id != categoryId && it.label.equals(cleanLabel, ignoreCase = true)
             }
+            check(!duplicate) { "Er bestaat al een categorie met deze naam" }
+
+            val updatedCategory = ActivityCategory(
+                id = categoryId ?: "custom-${Uuid.random()}",
+                label = cleanLabel,
+                pointsPer30Minutes = pointsPer30Minutes,
+            )
+            val categories = if (categoryId == null) {
+                session.categories + updatedCategory
+            } else {
+                session.categories.map {
+                    if (it.id == categoryId) updatedCategory else it
+                }
+            }
+            updateSessionCategories(session, categories)
+            _state.value = _state.value.copy(
+                message = if (categoryId == null) "Categorie toegevoegd" else "Categorie gewijzigd",
+                error = null,
+            )
+        }.onFailure { e ->
+            _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
         }
-        updateSessionCategories(session, categories)
-        _state.value = _state.value.copy(
-            message = if (categoryId == null) "Categorie toegevoegd" else "Categorie gewijzigd",
-        )
     }
 
     fun deleteCategory(categoryId: String) {
-        val session = requireNotNull(_state.value.selectedSession)
-        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
-        check(session.categories.size > 1) { "Er moet minimaal één categorie overblijven" }
+        runCatching {
+            val session = requireNotNull(_state.value.selectedSession)
+            check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+            check(session.categories.size > 1) { "Er moet minimaal één categorie overblijven" }
 
-        val categories = session.categories.filterNot { it.id == categoryId }
-        check(categories.size != session.categories.size) { "Categorie niet gevonden" }
+            val categories = session.categories.filterNot { it.id == categoryId }
+            check(categories.size != session.categories.size) { "Categorie niet gevonden" }
 
-        updateSessionCategories(session, categories)
-        _state.value = _state.value.copy(message = "Categorie verwijderd")
-    }
-
-    fun restoreDefaultCategories() {
-        val session = requireNotNull(_state.value.selectedSession)
-        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
-        updateSessionCategories(session, ActivityCategory.defaults)
-        _state.value = _state.value.copy(message = "Standaardcategorieën hersteld")
+            updateSessionCategories(session, categories)
+            _state.value = _state.value.copy(message = "Categorie verwijderd", error = null)
+        }.onFailure { e ->
+            _state.value = _state.value.copy(error = e.message ?: e::class.simpleName)
+        }
     }
 
     fun deleteActivity(item: ActivityItem) = launchBusy {
