@@ -69,6 +69,7 @@ fun ActiviteitenwegerApp(controller: AppController = remember { AppController() 
                     busy = state.busy,
                     error = state.error,
                     onCreate = controller::createVault,
+                    onJoin = controller::claimPairing,
                 )
                 else -> AdaptiveShell(
                     destination = destination,
@@ -150,9 +151,16 @@ private fun Content(
 }
 
 @Composable
-private fun WelcomeScreen(busy: Boolean, error: String?, onCreate: (String) -> Unit) {
+private fun WelcomeScreen(
+    busy: Boolean,
+    error: String?,
+    onCreate: (String) -> Unit,
+    onJoin: (String) -> Unit,
+) {
     var label by remember { mutableStateOf("Mijn Activiteitenweger") }
     var showLicense by remember { mutableStateOf(false) }
+    var showJoin by remember { mutableStateOf(false) }
+
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -161,17 +169,31 @@ private fun WelcomeScreen(busy: Boolean, error: String?, onCreate: (String) -> U
         Text("Activiteitenweger", style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(12.dp))
         Text(
-            "Registreer activiteiten en deel later versleuteld met een behandelaar. " +
-                "De server ontvangt geen leesbare activiteitgegevens.",
+            "Registreer activiteiten of koppel veilig een bestaand profiel via QR-code of koppelcode.",
             style = MaterialTheme.typography.bodyLarge,
         )
         Spacer(Modifier.height(24.dp))
         OutlinedTextField(label, { label = it }, label = { Text("Naam van profiel") })
         Spacer(Modifier.height(12.dp))
-        Button(onClick = { onCreate(label) }, enabled = !busy) {
+        Button(
+            onClick = { onCreate(label) },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("Nieuwe Activiteitenweger maken")
         }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { showJoin = true },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Bestaand profiel koppelen")
+        }
+        error?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
         Spacer(Modifier.height(24.dp))
         Text(
             "Versie ${appVersionName()} (build ${appBuildNumber()})",
@@ -182,6 +204,16 @@ private fun WelcomeScreen(busy: Boolean, error: String?, onCreate: (String) -> U
             style = MaterialTheme.typography.bodySmall,
         )
         TextButton(onClick = { showLicense = true }) { Text("Licentie-informatie") }
+    }
+
+    if (showJoin) {
+        JoinPairingDialog(
+            onDismiss = { showJoin = false },
+            onJoin = {
+                showJoin = false
+                onJoin(it)
+            },
+        )
     }
 
     if (showLicense) {
