@@ -1853,6 +1853,194 @@ private fun ScrollDownButton(
 }
 
 @Composable
+private fun PairingInvitationDialog(
+    invitation: net.dikkenberg.activiteitenweger.model.PairingInvitation,
+    onClose: () -> Unit,
+    onRevoke: () -> Unit,
+) {
+    val qrPainter = rememberQrCodePainter(invitation.qrPayload)
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Apparaat koppelen") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "Toegang: ${invitation.access.name} · geldig gedurende ongeveer ${invitation.expiresInSeconds / 60} minuten",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(16.dp))
+                Image(
+                    painter = qrPainter,
+                    contentDescription = "QR-koppelcode",
+                    modifier = Modifier.size(240.dp),
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("Handmatige koppelcode", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(4.dp))
+                Text(invitation.code, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "De code geeft toegang tot de versleutelde sleutel van dit profiel. Deel hem alleen met het apparaat dat je wilt koppelen.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onClose) { Text("Sluiten") }
+        },
+        dismissButton = {
+            TextButton(onClick = onRevoke) { Text("Koppelcode intrekken") }
+        },
+    )
+}
+
+@Composable
+private fun JoinPairingDialog(
+    onDismiss: () -> Unit,
+    onJoin: (String) -> Unit,
+) {
+    var code by remember { mutableStateOf("") }
+    var scanning by remember { mutableStateOf(false) }
+    var scanError by remember { mutableStateOf<String?>(null) }
+
+    if (scanning) {
+        AlertDialog(
+            onDismissRequest = { scanning = false },
+            title = { Text("QR-code scannen") },
+            text = {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(420.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CameraPermissionGate {
+                        ScannerView(
+                            modifier = Modifier.fillMaxSize(),
+                            codeTypes = listOf(BarcodeFormat.FORMAT_QR_CODE),
+                            scannerUiOptions = null,
+                        ) { result ->
+                            when (result) {
+                                is BarcodeResult.OnSuccess -> {
+                                    code = result.barcode.data
+                                    scanning = false
+                                    scanError = null
+                                }
+                                is BarcodeResult.OnFailed -> {
+                                    scanError = result.exception.message ?: "Scannen mislukt"
+                                }
+                                BarcodeResult.OnCanceled -> scanning = false
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { scanning = false }) { Text("Annuleer") }
+            },
+        )
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Bestaand profiel koppelen") },
+        text = {
+            Column {
+                Text("Scan de QR-code of vul de handmatige koppelcode in.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it },
+                    label = { Text("Koppelcode") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { scanning = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("QR-code scannen")
+                }
+                scanError?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onJoin(code) },
+                enabled = code.isNotBlank(),
+            ) {
+                Text("Koppelen")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
+}
+
+@Composable
+private fun ConflictResolverDialog(
+    conflict: net.dikkenberg.activiteitenweger.model.ActivityConflictSnapshot,
+    onUseMine: () -> Unit,
+    onUseServer: () -> Unit,
+) {
+    fun describe(
+        payload: net.dikkenberg.activiteitenweger.model.ActivityRecordPayload?,
+        deleted: Boolean,
+        revision: Long,
+    ): String {
+        if (deleted) return "Verwijderd · revision $revision"
+        if (payload == null) return "Versleutelde profielinstelling · revision $revision"
+        val end = payload.endedAt?.let(::formatLocalTime) ?: "lopend"
+        return buildString {
+            append(payload.description)
+            append("\n")
+            append(payload.category.label)
+            append(" · ")
+            append(formatLocalTime(payload.startedAt))
+            append(" – ")
+            append(end)
+            append("\nrevision ")
+            append(revision)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Synchronisatieconflict") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Dit item is op twee apparaten gewijzigd. Kies welke versie moet blijven.")
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Jouw versie", style = MaterialTheme.typography.titleSmall)
+                        Text(describe(conflict.localPayload, conflict.localDeleted, conflict.localRevision))
+                    }
+                }
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Serverversie", style = MaterialTheme.typography.titleSmall)
+                        Text(describe(conflict.remotePayload, conflict.remoteDeleted, conflict.remoteRevision))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onUseMine) { Text("Mijn versie gebruiken") }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onUseServer) { Text("Serverversie gebruiken") }
+        },
+    )
+}
+@Composable
 private fun MessageDialog(title: String, text: String, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
