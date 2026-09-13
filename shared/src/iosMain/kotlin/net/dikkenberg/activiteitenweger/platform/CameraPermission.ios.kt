@@ -11,10 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.cinterop.ExperimentalForeignApi
-import platform.AVFoundation.AVAuthorizationStatusAuthorized
-import platform.AVFoundation.AVAuthorizationStatusNotDetermined
-import platform.AVFoundation.AVCaptureDevice
-import platform.AVFoundation.AVMediaTypeVideo
+import platform.AVFoundation.*
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 
@@ -33,7 +30,7 @@ actual fun CameraPermissionGate(
     fun request() {
         val status = AVCaptureDevice.authorizationStatusForMediaType(AVMediaTypeVideo)
         if (status == AVAuthorizationStatusNotDetermined) {
-            AVCaptureDevice.requestAccessForMediaType(AVMediaTypeVideo) { allowed ->
+            AVCaptureDevice.requestAccessForMediaType(mediaType = AVMediaTypeVideo) { allowed: Boolean ->
                 dispatch_async(dispatch_get_main_queue()) {
                     granted = allowed
                 }
