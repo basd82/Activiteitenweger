@@ -226,6 +226,14 @@ class VaultRepository(
         api.revokePairingInvite(session, inviteId)
     }
 
+    suspend fun firstConflictSnapshot(session: VaultSession): ActivityConflictSnapshot? {
+        val state = localSyncStore.load(session.vaultId)
+        val recordId = state.pending.firstOrNull {
+            it.state == PendingMutationState.CONFLICT
+        }?.recordId ?: return null
+        return conflictSnapshot(session, recordId)
+    }
+
     suspend fun conflictSnapshot(session: VaultSession, recordId: String): ActivityConflictSnapshot? {
         val state = localSyncStore.load(session.vaultId)
         val pending = state.pending.firstOrNull {
