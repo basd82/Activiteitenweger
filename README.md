@@ -29,6 +29,7 @@ Kotlin Multiplatform / Compose Multiplatform app voor iPhone, iPad, Android-tele
 - gebruikt een offline outbox: activiteiten starten, stoppen, wijzigen en verwijderen blijft mogelijk zonder internet;
 - gebruikt na de eerste cache-opbouw de sync-cursor ook over app-herstarts heen incrementeel;
 - synchroniseert direct na eigen wijzigingen, bij terugkeer naar de app en iedere 30 seconden zolang de app actief is;
+- lokale Start/Stop/Wijzig-acties wachten nooit op een netwerkrequest; een hangende automatische sync wordt daarvoor afgebroken;
 - blokkeert gelijktijdige sync/schrijfacties lokaal en overschrijft een serverwijziging nooit blind bij `409 revision_conflict`;
 - ondersteunt meerdere lokale vault-profielen in één app-installatie;
 - verwijdert een eigen vault volledig via de server-API;
@@ -42,7 +43,7 @@ Pairing via QR/koppelcode, R/RW grants, self-revoke van een behandelaar, access-
 
 ## Versies (13 september 2026)
 
-App-versie: **0.2.1 (build 11)**  
+App-versie: **0.2.2 (build 12)**  
 Verwachte API-major: **v1**; getest met server **1.1.0**
 
 - Kotlin 2.4.20
