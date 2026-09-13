@@ -32,6 +32,13 @@ data class ActivityCategory(
 }
 
 @Serializable
+data class ActivityPreset(
+    val id: String,
+    val label: String,
+    val categoryId: String,
+)
+
+@Serializable
 enum class AccessMode { R, RW }
 
 @Serializable
@@ -126,6 +133,7 @@ data class VaultSession(
     val vaultKey: String,
     val cursor: Long = 0,
     val categories: List<ActivityCategory> = ActivityCategory.defaults,
+    val activityPresets: List<ActivityPreset> = emptyList(),
 )
 
 @Serializable
