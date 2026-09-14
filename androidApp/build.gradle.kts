@@ -31,4 +31,5 @@ android {
 dependencies {
     implementation(dependencies.project(":shared"))
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.fragment.ktx)
 }
