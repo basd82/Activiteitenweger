@@ -117,6 +117,44 @@ data class ClaimPairingResponse(
 )
 
 @Serializable
+data class CreateRecoveryRequest(
+    val recoveryId: String,
+    val recoverySecretHash: String,
+    val keyPackageCiphertext: String,
+    val keyPackageNonce: String,
+    val keyEpoch: Int,
+)
+
+@Serializable
+data class CreateRecoveryResponse(
+    val status: String,
+    val recoveryId: String,
+    val keyEpoch: Int,
+)
+
+@Serializable
+data class ClaimRecoveryRequest(
+    val recoveryId: String,
+    val recoverySecret: String,
+    val deviceId: String,
+    val authPublicKey: String,
+    val encryptionPublicKey: String,
+)
+
+@Serializable
+data class ClaimRecoveryResponse(
+    val status: String,
+    val recoveryId: String,
+    val vaultId: String,
+    val deviceId: String,
+    val access: AccessMode,
+    val owner: Boolean,
+    val keyEpoch: Int,
+    val keyPackageCiphertext: String,
+    val keyPackageNonce: String,
+)
+
+@Serializable
 data class RevokeResponse(
     val status: String,
     val deviceId: String? = null,
