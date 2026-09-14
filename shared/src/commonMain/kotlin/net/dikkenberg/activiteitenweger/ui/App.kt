@@ -7,11 +7,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,11 +71,13 @@ fun ActiviteitenwegerApp(controller: AppController = remember { AppController() 
                 !state.initialized -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
+                state.appLocked -> AppLockScreen(state, controller)
                 state.sessions.isEmpty() -> WelcomeScreen(
                     busy = state.busy,
                     error = state.error,
                     onCreate = controller::createVault,
                     onJoin = controller::claimPairing,
+                    onRecover = controller::claimRecovery,
                 )
                 else -> AdaptiveShell(
                     destination = destination,
@@ -166,10 +171,12 @@ private fun WelcomeScreen(
     error: String?,
     onCreate: (String) -> Unit,
     onJoin: (String) -> Unit,
+    onRecover: (String) -> Unit,
 ) {
     var label by remember { mutableStateOf("Mijn Activiteitenweger") }
     var showLicense by remember { mutableStateOf(false) }
     var showJoin by remember { mutableStateOf(false) }
+    var showRecovery by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().padding(24.dp),
@@ -200,6 +207,14 @@ private fun WelcomeScreen(
         ) {
             Text("Bestaand profiel koppelen")
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { showRecovery = true },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Profiel herstellen met herstelcode")
+        }
         error?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
@@ -226,8 +241,67 @@ private fun WelcomeScreen(
         )
     }
 
+    if (showRecovery) {
+        RecoveryCodeEntryDialog(
+            onDismiss = { showRecovery = false },
+            onRecover = {
+                showRecovery = false
+                onRecover(it)
+            },
+        )
+    }
+
     if (showLicense) {
         LicenseDialog(onDismiss = { showLicense = false })
+    }
+}
+
+@Composable
+private fun AppLockScreen(state: AppUiState, controller: AppController) {
+    var pin by remember { mutableStateOf("") }
+
+    Column(
+        Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Activiteitenweger", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(8.dp))
+        Text("Deze app is vergrendeld.")
+        Spacer(Modifier.height(20.dp))
+        OutlinedTextField(
+            value = pin,
+            onValueChange = { value -> pin = value.filter(Char::isDigit).take(12) },
+            label = { Text("PIN") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = {
+                controller.unlockWithPin(pin)
+                pin = ""
+            },
+            enabled = pin.length >= 4,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Ontgrendelen")
+        }
+        if (state.biometricsEnabled && state.biometricName != null) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = controller::unlockWithBiometrics,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Ontgrendelen met ${state.biometricName}")
+            }
+        }
+        state.error?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
     }
 }
 
