@@ -32,10 +32,16 @@ import net.dikkenberg.activiteitenweger.model.PairingInvitation
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
 import net.dikkenberg.activiteitenweger.network.ApiException
+import net.dikkenberg.activiteitenweger.platform.authenticateBiometric
+import net.dikkenberg.activiteitenweger.platform.biometricDisplayName
 import net.dikkenberg.activiteitenweger.platform.pickExcelFileBytes
 import net.dikkenberg.activiteitenweger.platform.saveExcelFile
+import net.dikkenberg.activiteitenweger.storage.AppSecuritySettings
+import net.dikkenberg.activiteitenweger.storage.AppSecurityStore
 import net.dikkenberg.activiteitenweger.storage.SessionStore
 import net.dikkenberg.activiteitenweger.storage.createSecureStore
+import net.dikkenberg.activiteitenweger.crypto.fromBase64Url
+import net.dikkenberg.activiteitenweger.crypto.toBase64Url
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -62,6 +68,14 @@ data class AppUiState(
     val conflictChanges: Int = 0,
     val devices: List<DeviceInfo> = emptyList(),
     val pairingInvitation: PairingInvitation? = null,
+    val recoveryCredential: net.dikkenberg.activiteitenweger.model.RecoveryCredential? = null,
+    val recoveryId: String? = null,
+    val recoveryCreatedAt: String? = null,
+    val appLockEnabled: Boolean = false,
+    val biometricsEnabled: Boolean = false,
+    val biometricName: String? = null,
+    val appLocked: Boolean = false,
+    val lockAfterSeconds: Long = 60,
     val conflict: SyncConflictInfo? = null,
     val conflictSnapshot: ActivityConflictSnapshot? = null,
     val message: String? = null,
@@ -88,11 +102,16 @@ class AppController(
 ) {
     private val crypto = CryptoService()
     private val api = ApiClient(crypto = crypto)
-    private val sessionStore = SessionStore(createSecureStore(), api.json)
+    private val secureStore = createSecureStore()
+    private val sessionStore = SessionStore(secureStore, api.json)
+    private val securityStore = AppSecurityStore(secureStore)
     private val repository = VaultRepository(api, crypto, sessionStore)
     private val operationMutex = Mutex()
     private var automaticSyncJob: Job? = null
     private var appInForeground: Boolean = true
+    private var backgroundedAtEpochSeconds: Long? = null
+    private var biometricAuthenticating: Boolean = false
+    private var securitySettings: AppSecuritySettings = securityStore.load()
 
     private val _state = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = _state.asStateFlow()
@@ -100,12 +119,18 @@ class AppController(
     fun initialize() {
         if (_state.value.initialized) return
         scope.launch {
+            securitySettings = securityStore.load()
             val sessions = repository.sessions()
             val selected = sessions.firstOrNull()?.vaultId
             _state.value = _state.value.copy(
                 initialized = true,
                 sessions = sessions,
                 selectedVaultId = selected,
+                appLockEnabled = securitySettings.enabled,
+                biometricsEnabled = securitySettings.biometricsEnabled,
+                biometricName = biometricDisplayName(),
+                appLocked = securitySettings.enabled,
+                lockAfterSeconds = securitySettings.lockAfterSeconds,
             )
             checkHealth()
             if (selected != null) {
@@ -116,6 +141,94 @@ class AppController(
                 syncCurrentSilently()
             }
         }
+    }
+
+    fun configureAppLock(
+        pin: String,
+        useBiometrics: Boolean,
+        lockAfterSeconds: Long,
+    ) = launchBusy {
+        require(pin.length in 4..12 && pin.all(Char::isDigit)) {
+            "De PIN moet uit 4 tot 12 cijfers bestaan"
+        }
+        require(lockAfterSeconds in listOf(0L, 60L, 300L, 900L)) {
+            "Ongeldige vergrendeltijd"
+        }
+        if (useBiometrics) {
+            check(biometricDisplayName() != null) { "Biometrie is niet beschikbaar op dit apparaat" }
+        }
+
+        val salt = crypto.randomBytes(32)
+        val hash = hashPin(pin, salt)
+        securitySettings = AppSecuritySettings(
+            enabled = true,
+            biometricsEnabled = useBiometrics,
+            lockAfterSeconds = lockAfterSeconds,
+            pinSalt = salt.toBase64Url(),
+            pinHash = hash.toBase64Url(),
+        )
+        securityStore.save(securitySettings)
+        _state.value = _state.value.copy(
+            appLockEnabled = true,
+            biometricsEnabled = useBiometrics,
+            biometricName = biometricDisplayName(),
+            lockAfterSeconds = lockAfterSeconds,
+            message = "App-beveiliging opgeslagen",
+        )
+    }
+
+    fun disableAppLock(pin: String) = launchBusy {
+        check(verifyPin(pin)) { "Onjuiste PIN" }
+        securitySettings = AppSecuritySettings()
+        securityStore.save(securitySettings)
+        _state.value = _state.value.copy(
+            appLockEnabled = false,
+            biometricsEnabled = false,
+            appLocked = false,
+            lockAfterSeconds = 60,
+            message = "App-beveiliging uitgeschakeld",
+        )
+    }
+
+    fun unlockWithPin(pin: String) {
+        scope.launch {
+            if (verifyPin(pin)) {
+                backgroundedAtEpochSeconds = null
+                _state.value = _state.value.copy(appLocked = false, error = null)
+            } else {
+                _state.value = _state.value.copy(error = "Onjuiste PIN")
+            }
+        }
+    }
+
+    fun unlockWithBiometrics() {
+        if (!securitySettings.enabled || !securitySettings.biometricsEnabled) return
+        scope.launch {
+            biometricAuthenticating = true
+            try {
+                if (authenticateBiometric("Gebruik biometrie om je activiteiten te openen")) {
+                    backgroundedAtEpochSeconds = null
+                    _state.value = _state.value.copy(appLocked = false, error = null)
+                }
+            } finally {
+                biometricAuthenticating = false
+            }
+        }
+    }
+
+    private suspend fun verifyPin(pin: String): Boolean {
+        val salt = securitySettings.pinSalt?.fromBase64Url() ?: return false
+        val expected = securitySettings.pinHash?.fromBase64Url() ?: return false
+        val actual = hashPin(pin, salt)
+        return actual.contentEquals(expected)
+    }
+
+    private suspend fun hashPin(pin: String, salt: ByteArray): ByteArray {
+        var value = crypto.sha256(salt + pin.encodeToByteArray())
+        repeat(49_999) {
+            value = crypto.sha256(value + salt)
+        }
+        return value
     }
 
     fun createVault(label: String) = launchBusy(syncAfter = true) {
@@ -285,6 +398,7 @@ class AppController(
         if (
             !appInForeground ||
             !_state.value.initialized ||
+            _state.value.appLocked ||
             _state.value.selectedSession == null ||
             _state.value.busy ||
             _state.value.syncing ||
@@ -305,10 +419,25 @@ class AppController(
     }
 
     fun setAppForeground(active: Boolean) {
+        val now = Clock.System.now().epochSeconds
         val becameActive = active && !appInForeground
+
+        if (!active) {
+            backgroundedAtEpochSeconds = now
+        }
+
         appInForeground = active
-        if (becameActive) {
-            syncCurrentSilently()
+        if (becameActive && !biometricAuthenticating) {
+            if (securitySettings.enabled) {
+                val backgroundedAt = backgroundedAtEpochSeconds
+                val elapsed = if (backgroundedAt == null) Long.MAX_VALUE else (now - backgroundedAt).coerceAtLeast(0)
+                if (securitySettings.lockAfterSeconds == 0L || elapsed >= securitySettings.lockAfterSeconds) {
+                    _state.value = _state.value.copy(appLocked = true)
+                }
+            }
+            if (!_state.value.appLocked) {
+                syncCurrentSilently()
+            }
         }
     }
 
