@@ -45,6 +45,7 @@ data class ProfileSettingsPayload(
     val label: String,
     val categories: List<ActivityCategory> = ActivityCategory.defaults,
     val activityPresets: List<ActivityPreset> = emptyList(),
+    val dailyPointTarget: Double = 17.5,
 )
 
 @Serializable
@@ -151,6 +152,7 @@ data class VaultSession(
     val cursor: Long = 0,
     val categories: List<ActivityCategory> = ActivityCategory.defaults,
     val activityPresets: List<ActivityPreset> = emptyList(),
+    val dailyPointTarget: Double = 17.5,
     val settingsRevision: Long = 0,
 )
 
