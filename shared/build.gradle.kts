@@ -62,6 +62,7 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.biometric)
+            implementation(libs.androidx.credentials)
             implementation(libs.filekit.dialogs)
         }
 
