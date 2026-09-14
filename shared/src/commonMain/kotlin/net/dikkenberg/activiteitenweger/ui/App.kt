@@ -506,6 +506,7 @@ private fun ActivityEditorDialog(
     var startTime by remember { mutableStateOf(initialStartTime) }
     var endDate by remember { mutableStateOf(initialEndDate) }
     var endTime by remember { mutableStateOf(initialEndTime) }
+    var endDateManuallyChanged by remember { mutableStateOf(false) }
 
     var showStartDatePicker by remember { mutableStateOf(false) }
     var showStartTimePicker by remember { mutableStateOf(false) }
@@ -597,7 +598,11 @@ private fun ActivityEditorDialog(
             initialDate = startDate,
             onDismiss = { showStartDatePicker = false },
             onSelected = {
+                val previousStartDate = startDate
                 startDate = it
+                if (!endDateManuallyChanged && endDate == previousStartDate) {
+                    endDate = it
+                }
                 showStartDatePicker = false
             },
         )
@@ -622,6 +627,7 @@ private fun ActivityEditorDialog(
             onDismiss = { showEndDatePicker = false },
             onSelected = {
                 endDate = it
+                endDateManuallyChanged = true
                 showEndDatePicker = false
             },
         )
