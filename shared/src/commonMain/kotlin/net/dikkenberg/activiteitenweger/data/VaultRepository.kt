@@ -594,12 +594,14 @@ class VaultRepository(
         label: String = session.label,
         categories: List<ActivityCategory> = session.categories,
         activityPresets: List<ActivityPreset> = session.activityPresets,
+        dailyPointTarget: Double = session.dailyPointTarget,
     ): VaultSession =
         queueProfileSettingsMutation(
             session = session,
             label = label,
             categories = categories,
             activityPresets = activityPresets,
+            dailyPointTarget = dailyPointTarget,
         )
 
     suspend fun deleteVault(session: VaultSession) {
@@ -614,9 +616,13 @@ class VaultRepository(
         label: String,
         categories: List<ActivityCategory>,
         activityPresets: List<ActivityPreset>,
+        dailyPointTarget: Double,
     ): VaultSession {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
         require(categories.isNotEmpty()) { "Er moet minimaal één categorie zijn" }
+        require(dailyPointTarget.isFinite() && dailyPointTarget >= 0.0) {
+            "Het streefpuntenaantal moet nul of hoger zijn"
+        }
 
         val categoryIds = categories.mapTo(mutableSetOf()) { it.id }
         check(activityPresets.all { it.categoryId in categoryIds }) {
@@ -627,6 +633,7 @@ class VaultRepository(
             label = label.trim().ifBlank { "Mijn Activiteitenweger" },
             categories = categories,
             activityPresets = activityPresets,
+            dailyPointTarget = dailyPointTarget,
         )
         val pending = queueEncryptedMutation(
             session = session,
@@ -640,6 +647,7 @@ class VaultRepository(
             label = payload.label,
             categories = payload.categories,
             activityPresets = payload.activityPresets,
+            dailyPointTarget = payload.dailyPointTarget,
             settingsRevision = pending.revision,
         )
         sessions.save(updated)
@@ -938,6 +946,7 @@ class VaultRepository(
             label = payload.label.trim().ifBlank { label },
             categories = categories,
             activityPresets = payload.activityPresets.filter { it.categoryId in categoryIds },
+            dailyPointTarget = payload.dailyPointTarget,
             settingsRevision = revision,
         )
     }
