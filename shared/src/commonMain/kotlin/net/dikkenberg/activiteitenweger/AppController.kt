@@ -407,6 +407,20 @@ class AppController(
         _state.value = _state.value.copy(message = "Profielnaam gewijzigd")
     }
 
+    fun saveDailyPointTarget(target: Double) = launchBusy(syncAfter = true) {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+        require(target.isFinite() && target >= 0.0) {
+            "Het streefpuntenaantal moet nul of hoger zijn"
+        }
+        val updated = repository.updateProfileSettings(
+            session = session,
+            dailyPointTarget = target,
+        )
+        replaceSession(updated)
+        _state.value = _state.value.copy(message = "Streefpunten opgeslagen")
+    }
+
     fun saveCategory(
         categoryId: String?,
         label: String,
