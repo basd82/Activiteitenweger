@@ -3,11 +3,13 @@
 
 package net.dikkenberg.activiteitenweger.platform
 
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.LocalAuthentication.LAContext
 import platform.LocalAuthentication.LAPolicyDeviceOwnerAuthenticationWithBiometrics
 
+@OptIn(ExperimentalForeignApi::class)
 actual fun biometricDisplayName(): String? {
     val context = LAContext()
     return if (context.canEvaluatePolicy(LAPolicyDeviceOwnerAuthenticationWithBiometrics, null)) {
@@ -17,6 +19,7 @@ actual fun biometricDisplayName(): String? {
     }
 }
 
+@OptIn(ExperimentalForeignApi::class)
 actual suspend fun authenticateBiometric(reason: String): Boolean {
     val context = LAContext()
     if (!context.canEvaluatePolicy(LAPolicyDeviceOwnerAuthenticationWithBiometrics, null)) {
