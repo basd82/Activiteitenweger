@@ -1146,6 +1146,58 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
             }
         }
 
+        if (session.owner) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Herstelbackup", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Met een herstelcode kun je dit profiel terugzetten als je alle gekoppelde apparaten kwijtraakt.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    val activeDeviceCount = state.devices.count { it.status == "ACTIVE" }
+                    if (activeDeviceCount <= 1 && state.recoveryId == null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Let op: dit is nu je enige actieve apparaat. Zonder herstelbackup kan verlies van dit apparaat betekenen dat je versleutelde gegevens niet meer toegankelijk zijn.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (state.recoveryId == null) {
+                        Button(
+                            onClick = controller::createRecoveryCredential,
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Herstelbackup maken")
+                        }
+                    } else {
+                        Text(
+                            "Herstelbackup actief" +
+                                (state.recoveryCreatedAt?.let { " · gemaakt " + formatLocalDateTime(it) } ?: ""),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = controller::createRecoveryCredential,
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Nieuwe herstelbackup maken")
+                        }
+                        TextButton(
+                            onClick = controller::revokeRecoveryCredential,
+                            enabled = !state.busy,
+                        ) {
+                            Text("Herstelbackup intrekken")
+                        }
+                    }
+                }
+            }
+        }
+
         OutlinedButton(
             onClick = { showJoin = true },
             enabled = !state.busy,
@@ -1279,6 +1331,13 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
         }
 
         Text("Vault: ${session.vaultId}", style = MaterialTheme.typography.bodySmall)
+    }
+
+    state.recoveryCredential?.let { recovery ->
+        RecoveryCredentialDialog(
+            recovery = recovery,
+            onClose = controller::clearRecoveryCredential,
+        )
     }
 
     state.pairingInvitation?.let { invitation ->
@@ -2212,6 +2271,108 @@ private fun PairingInvitationDialog(
 }
 
 @Composable
+private fun RecoveryCredentialDialog(
+    recovery: net.dikkenberg.activiteitenweger.model.RecoveryCredential,
+    onClose: () -> Unit,
+) {
+    var copied by remember(recovery.code) { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Herstelbackup bewaren") },
+        text = {
+            Column {
+                Text(
+                    "Bewaar deze herstelcode buiten dit apparaat. De server bewaart de geheime code niet en deze code wordt maar één keer getoond.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedCard(Modifier.fillMaxWidth()) {
+                    Text(
+                        recovery.code,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            copyTextToClipboard("Activiteitenweger herstelcode", recovery.code)
+                            copied = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(if (copied) "Gekopieerd" else "Kopiëren")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            shareText(
+                                text = recovery.code,
+                                chooserTitle = "Herstelcode bewaren of delen",
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Delen")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Wie deze code bezit kan het eigenaarschap van dit profiel herstellen. Bewaar hem daarom alleen op een plek die je vertrouwt, bijvoorbeeld een wachtwoordmanager.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onClose) { Text("Ik heb de code veilig bewaard") }
+        },
+    )
+}
+
+@Composable
+private fun RecoveryCodeEntryDialog(
+    onDismiss: () -> Unit,
+    onRecover: (String) -> Unit,
+) {
+    var code by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Profiel herstellen") },
+        text = {
+            Column {
+                Text("Plak de herstelcode die je eerder buiten dit apparaat hebt bewaard.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.trim() },
+                    label = { Text("Herstelcode") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Na succesvol herstel wordt deze herstelcode ongeldig. Maak daarna vanuit het herstelde profiel een nieuwe herstelbackup.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onRecover(code) },
+                enabled = code.startsWith("AWREC1:", ignoreCase = true),
+            ) {
+                Text("Herstellen")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
+}
+
+@Composable
 private fun JoinPairingDialog(
     onDismiss: () -> Unit,
     onJoin: (String) -> Unit,
@@ -2429,6 +2590,15 @@ private fun formatLocalDate(value: String): String =
         .toLocalDateTime(TimeZone.currentSystemDefault())
         .date
         .toString()
+
+private fun formatLocalDateTime(value: String): String {
+    val dateTime = kotlin.time.Instant.parse(value)
+        .toLocalDateTime(TimeZone.currentSystemDefault())
+    return dateTime.dayOfMonth.toString().padStart(2, '0') + "-" +
+        dateTime.monthNumber.toString().padStart(2, '0') + "-" + dateTime.year + " " +
+        dateTime.hour.toString().padStart(2, '0') + ":" +
+        dateTime.minute.toString().padStart(2, '0')
+}
 
 private fun formatLocalTime(value: String): String {
     val time = kotlin.time.Instant.parse(value)
