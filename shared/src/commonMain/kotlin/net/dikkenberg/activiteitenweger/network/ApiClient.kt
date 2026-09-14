@@ -67,9 +67,15 @@ class ApiClient(
     suspend fun updateDeviceLabel(
         session: VaultSession,
         request: UpdateDeviceLabelRequest,
+        deviceId: String? = null,
     ): StatusResponse {
         val raw = json.encodeToString(request)
-        return signedJson(HttpMethod.Put, "/api/v1/me/device-label", raw, session)
+        val path = if (deviceId == null || deviceId == session.deviceId) {
+            "/api/v1/me/device-label"
+        } else {
+            "/api/v1/devices/$deviceId/label"
+        }
+        return signedJson(HttpMethod.Put, path, raw, session)
     }
 
     suspend fun transferOwnership(
