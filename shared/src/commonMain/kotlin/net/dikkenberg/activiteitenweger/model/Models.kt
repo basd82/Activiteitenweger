@@ -163,6 +163,7 @@ data class DeviceInfo(
     val createdAt: String,
     val lastSeenAt: String? = null,
     val revokedAt: String? = null,
+    val name: String? = null,
 )
 
 
