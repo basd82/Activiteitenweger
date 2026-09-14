@@ -31,6 +31,7 @@ import net.dikkenberg.activiteitenweger.network.ClaimPairingRequest
 import net.dikkenberg.activiteitenweger.network.CreatePairingInviteRequest
 import net.dikkenberg.activiteitenweger.network.CreateVaultRequest
 import net.dikkenberg.activiteitenweger.network.RemoteRecord
+import net.dikkenberg.activiteitenweger.network.UpdateDeviceLabelRequest
 import net.dikkenberg.activiteitenweger.network.UpsertRecordRequest
 import net.dikkenberg.activiteitenweger.storage.CachedEncryptedRecord
 import net.dikkenberg.activiteitenweger.storage.LocalSyncStore
@@ -198,6 +199,18 @@ class VaultRepository(
 
     suspend fun devices(session: VaultSession): List<DeviceInfo> =
         api.devices(session).devices.map {
+            val name = if (it.labelCiphertext != null && it.labelNonce != null) {
+                runCatching {
+                    crypto.xChaCha20Poly1305Decrypt(
+                        key = session.vaultKey.fromBase64Url(),
+                        nonce24 = it.labelNonce.fromBase64Url(),
+                        ciphertext = it.labelCiphertext.fromBase64Url(),
+                        associatedData = deviceLabelAssociatedData(session.vaultId, it.deviceId),
+                    ).decodeToString()
+                }.getOrNull()
+            } else {
+                null
+            }
             DeviceInfo(
                 deviceId = it.deviceId,
                 access = it.access,
@@ -206,8 +219,49 @@ class VaultRepository(
                 createdAt = it.createdAt,
                 lastSeenAt = it.lastSeenAt,
                 revokedAt = it.revokedAt,
+                name = name?.trim()?.takeIf(String::isNotBlank),
             )
         }
+
+    suspend fun updateDeviceName(session: VaultSession, name: String) {
+        val clean = name.trim()
+        require(clean.isNotBlank()) { "Vul een naam voor dit apparaat in" }
+        require(clean.length <= 80) { "De apparaatnaam mag maximaal 80 tekens zijn" }
+        val nonce = crypto.randomBytes(24)
+        val ciphertext = crypto.xChaCha20Poly1305Encrypt(
+            key = session.vaultKey.fromBase64Url(),
+            nonce24 = nonce,
+            plaintext = clean.encodeToByteArray(),
+            associatedData = deviceLabelAssociatedData(session.vaultId, session.deviceId),
+        )
+        api.updateDeviceLabel(
+            session,
+            UpdateDeviceLabelRequest(
+                labelCiphertext = ciphertext.toBase64Url(),
+                labelNonce = nonce.toBase64Url(),
+            ),
+        )
+    }
+
+    suspend fun refreshSessionAccess(session: VaultSession): VaultSession {
+        val me = api.me(session)
+        val updated = session.copy(
+            access = me.access,
+            owner = me.owner,
+            keyEpoch = me.currentKeyEpoch,
+        )
+        sessions.save(updated)
+        return updated
+    }
+
+    suspend fun transferOwnership(session: VaultSession, deviceId: String): VaultSession {
+        check(session.owner) { "Alleen de eigenaar kan het eigenaarschap overdragen" }
+        check(deviceId != session.deviceId) { "Dit apparaat is al eigenaar" }
+        api.transferOwnership(session, deviceId)
+        val updated = session.copy(owner = false)
+        sessions.save(updated)
+        return updated
+    }
 
     suspend fun revokeDevice(session: VaultSession, deviceId: String) {
         check(session.owner) { "Alleen de eigenaar kan toegang intrekken" }
@@ -935,6 +989,9 @@ class VaultRepository(
             canonical.encodeToByteArray(),
         )
     }
+
+    private fun deviceLabelAssociatedData(vaultId: String, deviceId: String): ByteArray =
+        ("AW-DEVICE-LABEL-V1\n" + vaultId + "\n" + deviceId).encodeToByteArray()
 
     private fun pairingAssociatedData(
         inviteId: String,
