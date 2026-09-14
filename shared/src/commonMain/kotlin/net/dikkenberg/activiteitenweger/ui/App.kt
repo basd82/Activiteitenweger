@@ -1766,6 +1766,29 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         LicenseDialog(onDismiss = { showLicense = false })
     }
 
+    if (showSecuritySetup) {
+        AppSecuritySetupDialog(
+            biometricName = state.biometricName,
+            initialBiometrics = state.biometricsEnabled,
+            initialTimeout = state.lockAfterSeconds,
+            onDismiss = { showSecuritySetup = false },
+            onSave = { pin, biometrics, timeout ->
+                showSecuritySetup = false
+                controller.configureAppLock(pin, biometrics, timeout)
+            },
+        )
+    }
+
+    if (showSecurityDisable) {
+        AppSecurityDisableDialog(
+            onDismiss = { showSecurityDisable = false },
+            onDisable = { pin ->
+                showSecurityDisable = false
+                controller.disableAppLock(pin)
+            },
+        )
+    }
+
     if (addingCategory) {
         CategoryEditorDialog(
             title = "Categorie toevoegen",
