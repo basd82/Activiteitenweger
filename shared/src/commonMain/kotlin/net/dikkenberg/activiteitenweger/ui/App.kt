@@ -30,6 +30,8 @@ import net.dikkenberg.activiteitenweger.model.SyncStatus
 import net.dikkenberg.activiteitenweger.platform.CameraPermissionGate
 import net.dikkenberg.activiteitenweger.platform.appBuildNumber
 import net.dikkenberg.activiteitenweger.platform.appVersionName
+import net.dikkenberg.activiteitenweger.platform.copyTextToClipboard
+import net.dikkenberg.activiteitenweger.platform.shareText
 import kotlin.math.abs
 import org.ncgroup.kscan.BarcodeFormat
 import org.ncgroup.kscan.BarcodeResult
@@ -2069,6 +2071,7 @@ private fun PairingInvitationDialog(
     onRevoke: () -> Unit,
 ) {
     val qrPainter = rememberQrCodePainter(invitation.qrPayload)
+    var copied by remember(invitation.code) { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onClose,
@@ -2092,6 +2095,32 @@ private fun PairingInvitationDialog(
                 Text("Handmatige koppelcode", style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(4.dp))
                 Text(invitation.code, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            copyTextToClipboard("Activiteitenweger koppelcode", invitation.code)
+                            copied = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(if (copied) "Gekopieerd" else "Kopiëren")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            shareText(
+                                text = invitation.code,
+                                chooserTitle = "Koppelcode delen",
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Delen")
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "De code geeft toegang tot de versleutelde sleutel van dit profiel. Deel hem alleen met het apparaat dat je wilt koppelen.",
