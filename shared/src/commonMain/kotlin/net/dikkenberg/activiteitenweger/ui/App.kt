@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -244,11 +245,41 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text(state.selectedSession?.label ?: "Vandaag", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
+        val target = state.selectedSession?.dailyPointTarget ?: 17.5
+        val difference = score - target
+        val targetColor = when {
+            difference <= 0.0 -> Color(0xFF2E7D32)
+            difference <= 5.0 -> Color(0xFFF57C00)
+            else -> MaterialTheme.colorScheme.error
+        }
+        val targetText = when {
+            difference <= 0.0 -> "Binnen streefwaarde"
+            difference <= 5.0 -> "${formatPoints(difference)} boven streefwaarde"
+            else -> "${formatPoints(difference)} boven streefwaarde"
+        }
+
         ElevatedCard(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(
+                Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Column {
                     Text("Dagtotaal", style = MaterialTheme.typography.labelLarge)
-                    Text(formatPoints(score), style = MaterialTheme.typography.headlineLarge)
+                    Text(
+                        formatPoints(score),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = targetColor,
+                    )
+                    Text(
+                        "Streefwaarde: ${formatPoints(target)} punten",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        targetText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = targetColor,
+                    )
                 }
                 Text("${today.size} afgerond", style = MaterialTheme.typography.bodyMedium)
             }
@@ -1255,6 +1286,13 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var addingPreset by remember { mutableStateOf(false) }
     var editingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
     var deletingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
+    var targetPointsInput by remember(state.selectedVaultId, state.selectedSession?.dailyPointTarget) {
+        mutableStateOf(
+            (state.selectedSession?.dailyPointTarget ?: 17.5)
+                .toString()
+                .replace('.', ',')
+        )
+    }
     val settingsScrollState = rememberScrollState()
     var importYear by remember {
         mutableStateOf(
@@ -1304,6 +1342,47 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         TextButton(onClick = { showLicense = true }) { Text("Licentie-informatie") }
         Spacer(Modifier.height(12.dp))
         Button(onClick = controller::syncCurrent, enabled = !state.busy) { Text("Nu synchroniseren") }
+        Spacer(Modifier.height(20.dp))
+        Text("Streefpunten per dag", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Tot en met de streefwaarde wordt de dag groen weergegeven. " +
+                "Tot 5 punten erboven oranje, en meer dan 5 punten erboven rood."
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = targetPointsInput,
+                onValueChange = { targetPointsInput = it },
+                label = { Text("Streefpunten") },
+                singleLine = true,
+                enabled = state.canWrite && !state.busy,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = {
+                    targetPointsInput
+                        .trim()
+                        .replace(',', '.')
+                        .toDoubleOrNull()
+                        ?.let(controller::saveDailyPointTarget)
+                },
+                enabled = state.canWrite &&
+                    !state.busy &&
+                    targetPointsInput.trim().replace(',', '.').toDoubleOrNull()?.let { it >= 0.0 } == true,
+            ) {
+                Text("Opslaan")
+            }
+        }
+        if (!state.canWrite) {
+            Text(
+                "De streefwaarde kan niet worden gewijzigd in een alleen-lezen profiel.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
         Spacer(Modifier.height(20.dp))
         Text("Categorieën en punten", style = MaterialTheme.typography.titleMedium)
         Text(
