@@ -64,6 +64,20 @@ class ApiClient(
     suspend fun devices(session: VaultSession): DevicesResponse =
         signedJson(HttpMethod.Get, "/api/v1/devices", "", session)
 
+    suspend fun updateDeviceLabel(
+        session: VaultSession,
+        request: UpdateDeviceLabelRequest,
+    ): StatusResponse {
+        val raw = json.encodeToString(request)
+        return signedJson(HttpMethod.Put, "/api/v1/me/device-label", raw, session)
+    }
+
+    suspend fun transferOwnership(
+        session: VaultSession,
+        deviceId: String,
+    ): OwnershipTransferResponse =
+        signedJson(HttpMethod.Post, "/api/v1/devices/$deviceId/transfer-ownership", "", session)
+
     suspend fun createPairingInvite(
         session: VaultSession,
         request: CreatePairingInviteRequest,
