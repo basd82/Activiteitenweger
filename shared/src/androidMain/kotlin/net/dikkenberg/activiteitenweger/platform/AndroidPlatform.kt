@@ -3,7 +3,10 @@
 
 package net.dikkenberg.activiteitenweger.platform
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.ComponentActivity
@@ -61,4 +64,22 @@ actual fun appBuildNumber(): String {
         packageInfo.versionCode.toLong()
     }
     return build.toString()
+}
+
+actual fun copyTextToClipboard(label: String, text: String) {
+    val context = requireAndroidContext()
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+}
+
+actual fun shareText(text: String, chooserTitle: String) {
+    val context = requireAndroidContext()
+    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    val chooser = Intent.createChooser(sendIntent, chooserTitle).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(chooser)
 }
