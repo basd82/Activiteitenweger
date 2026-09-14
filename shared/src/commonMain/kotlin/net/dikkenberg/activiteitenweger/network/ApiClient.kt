@@ -95,6 +95,9 @@ class ApiClient(
     suspend fun claimPairing(request: ClaimPairingRequest): ClaimPairingResponse =
         publicJson(HttpMethod.Post, "/api/v1/pairing/claim", request)
 
+    suspend fun recoveryStatus(session: VaultSession): RecoveryStatusResponse =
+        signedJson(HttpMethod.Get, "/api/v1/recovery", "", session)
+
     suspend fun createRecovery(
         session: VaultSession,
         request: CreateRecoveryRequest,
