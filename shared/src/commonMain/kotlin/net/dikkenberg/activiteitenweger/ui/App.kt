@@ -246,10 +246,12 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
         Text(state.selectedSession?.label ?: "Vandaag", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
         val target = state.selectedSession?.dailyPointTarget ?: 17.5
+        val orangeAbove = state.selectedSession?.dailyPointOrangeAbove ?: 0.0
+        val redAbove = state.selectedSession?.dailyPointRedAbove ?: 5.0
         val difference = score - target
         val targetColor = when {
-            difference <= 0.0 -> Color(0xFF2E7D32)
-            difference <= 5.0 -> Color(0xFFF57C00)
+            difference <= orangeAbove -> Color(0xFF2E7D32)
+            difference <= redAbove -> Color(0xFFF57C00)
             else -> MaterialTheme.colorScheme.error
         }
         val targetText = when {
@@ -836,7 +838,10 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column {
-                                Text(date, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "${dutchWeekday(date)} · ${formatIsoDateForDisplay(date)}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
                                 Text(
                                     "${dayItems.size} ${if (dayItems.size == 1) "activiteit" else "activiteiten"}",
                                     style = MaterialTheme.typography.bodySmall,
@@ -865,7 +870,7 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
                 item {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Activiteiten op $date",
+                        "Activiteiten op ${dutchWeekday(date).lowercase()} ${formatIsoDateForDisplay(date)}",
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
@@ -1293,6 +1298,20 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
                 .replace('.', ',')
         )
     }
+    var orangeAboveInput by remember(state.selectedVaultId, state.selectedSession?.dailyPointOrangeAbove) {
+        mutableStateOf(
+            (state.selectedSession?.dailyPointOrangeAbove ?: 0.0)
+                .toString()
+                .replace('.', ',')
+        )
+    }
+    var redAboveInput by remember(state.selectedVaultId, state.selectedSession?.dailyPointRedAbove) {
+        mutableStateOf(
+            (state.selectedSession?.dailyPointRedAbove ?: 5.0)
+                .toString()
+                .replace('.', ',')
+        )
+    }
     val settingsScrollState = rememberScrollState()
     var importYear by remember {
         mutableStateOf(
@@ -1345,36 +1364,54 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         Spacer(Modifier.height(20.dp))
         Text("Streefpunten per dag", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Tot en met de streefwaarde wordt de dag groen weergegeven. " +
-                "Tot 5 punten erboven oranje, en meer dan 5 punten erboven rood."
+            "Stel het dagdoel en de kleurgrenzen in. De grenzen zijn het aantal punten " +
+                "boven de streefwaarde waarop oranje en rood beginnen."
         )
         Spacer(Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        OutlinedTextField(
+            value = targetPointsInput,
+            onValueChange = { targetPointsInput = it },
+            label = { Text("Streefpunten") },
+            singleLine = true,
+            enabled = state.canWrite && !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
-                value = targetPointsInput,
-                onValueChange = { targetPointsInput = it },
-                label = { Text("Streefpunten") },
+                value = orangeAboveInput,
+                onValueChange = { orangeAboveInput = it },
+                label = { Text("Oranje vanaf +") },
                 singleLine = true,
                 enabled = state.canWrite && !state.busy,
                 modifier = Modifier.weight(1f),
             )
-            Button(
-                onClick = {
-                    targetPointsInput
-                        .trim()
-                        .replace(',', '.')
-                        .toDoubleOrNull()
-                        ?.let(controller::saveDailyPointTarget)
-                },
-                enabled = state.canWrite &&
-                    !state.busy &&
-                    targetPointsInput.trim().replace(',', '.').toDoubleOrNull()?.let { it >= 0.0 } == true,
-            ) {
-                Text("Opslaan")
-            }
+            OutlinedTextField(
+                value = redAboveInput,
+                onValueChange = { redAboveInput = it },
+                label = { Text("Rood vanaf +") },
+                singleLine = true,
+                enabled = state.canWrite && !state.busy,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        val targetValue = targetPointsInput.trim().replace(',', '.').toDoubleOrNull()
+        val orangeValue = orangeAboveInput.trim().replace(',', '.').toDoubleOrNull()
+        val redValue = redAboveInput.trim().replace(',', '.').toDoubleOrNull()
+        Button(
+            onClick = {
+                if (targetValue != null && orangeValue != null && redValue != null) {
+                    controller.saveDailyPointSettings(targetValue, orangeValue, redValue)
+                }
+            },
+            enabled = state.canWrite &&
+                !state.busy &&
+                targetValue != null && targetValue >= 0.0 &&
+                orangeValue != null && orangeValue >= 0.0 &&
+                redValue != null && redValue >= orangeValue,
+        ) {
+            Text("Streefpunten en kleurgrenzen opslaan")
         }
         if (!state.canWrite) {
             Text(
@@ -2247,6 +2284,18 @@ private fun timeRange(item: ActivityItem): String {
     val end = item.payload.endedAt?.let(::formatLocalTime)
     return if (end == null) "Vanaf $start" else "$start – $end"
 }
+
+private fun dutchWeekday(value: String): String =
+    when (LocalDate.parse(value).dayOfWeek.name) {
+        "MONDAY" -> "Maandag"
+        "TUESDAY" -> "Dinsdag"
+        "WEDNESDAY" -> "Woensdag"
+        "THURSDAY" -> "Donderdag"
+        "FRIDAY" -> "Vrijdag"
+        "SATURDAY" -> "Zaterdag"
+        "SUNDAY" -> "Zondag"
+        else -> ""
+    }
 
 private fun formatIsoDateForDisplay(value: String): String {
     val date = LocalDate.parse(value)
