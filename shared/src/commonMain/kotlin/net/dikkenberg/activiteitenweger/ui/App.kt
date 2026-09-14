@@ -976,7 +976,13 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
     val session = state.selectedSession
     var showJoin by remember { mutableStateOf(false) }
     var revokeDeviceId by remember { mutableStateOf<String?>(null) }
+    var transferOwnerDeviceId by remember { mutableStateOf<String?>(null) }
     var confirmSelfRevoke by remember { mutableStateOf(false) }
+    var showRevokedDevices by remember { mutableStateOf(false) }
+    val currentDevice = state.devices.firstOrNull { it.deviceId == session?.deviceId }
+    var currentDeviceName by remember(state.selectedVaultId, currentDevice?.name) {
+        mutableStateOf(currentDevice?.name.orEmpty())
+    }
     val scrollState = rememberScrollState()
 
     LaunchedEffect(state.selectedVaultId, session?.access) {
@@ -1043,10 +1049,44 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
                 }
             }
 
-            if (state.devices.isEmpty()) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Naam van dit apparaat", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = currentDeviceName,
+                        onValueChange = { currentDeviceName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Bijvoorbeeld: Bas iPhone") },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = { controller.updateDeviceName(currentDeviceName) },
+                        enabled = !state.busy && currentDeviceName.trim().isNotEmpty(),
+                    ) { Text("Apparaatnaam opslaan") }
+                    Text(
+                        "Deze naam wordt versleuteld opgeslagen en is alleen binnen dit profiel leesbaar.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
+            val revokedCount = state.devices.count { it.status == "REVOKED" }
+            val visibleDevices = state.devices.filter { showRevokedDevices || it.status != "REVOKED" }
+            if (revokedCount > 0) {
+                TextButton(onClick = { showRevokedDevices = !showRevokedDevices }) {
+                    Text(
+                        if (showRevokedDevices) "Ingetrokken apparaten verbergen"
+                        else "Ingetrokken apparaten tonen ($revokedCount)"
+                    )
+                }
+            }
+
+            if (visibleDevices.isEmpty()) {
                 Text("Nog geen apparatenlijst geladen.")
             } else {
-                state.devices.forEach { device ->
+                visibleDevices.forEach { device ->
                     OutlinedCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
                             Row(
@@ -1055,15 +1095,32 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
                             ) {
                                 Column(Modifier.weight(1f)) {
                                     Text(
-                                        when {
+                                        device.name ?: when {
                                             device.deviceId == session.deviceId -> "Dit apparaat"
                                             device.owner -> "Eigenaar"
                                             else -> "Gekoppeld apparaat"
                                         },
                                         style = MaterialTheme.typography.titleSmall,
                                     )
-                                    Text("Toegang: ${device.access.name}")
-                                    Text("Status: ${device.status}", style = MaterialTheme.typography.bodySmall)
+                                    if (device.deviceId == session.deviceId) {
+                                        Text("Dit apparaat", style = MaterialTheme.typography.bodySmall)
+                                    } else if (device.owner) {
+                                        Text("Eigenaar", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text(
+                                        "Toegang: " + when (device.access) {
+                                            AccessMode.R -> "alleen lezen"
+                                            AccessMode.RW -> "lezen en schrijven"
+                                        }
+                                    )
+                                    Text(
+                                        "Status: " + when (device.status) {
+                                            "ACTIVE" -> "Actief"
+                                            "REVOKED" -> "Ingetrokken"
+                                            else -> device.status
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
                                     device.lastSeenAt?.let {
                                         Text("Laatst actief: ${formatLocalTime(it)}", style = MaterialTheme.typography.bodySmall)
                                     }
@@ -1074,8 +1131,15 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
                                     device.status == "ACTIVE" &&
                                     device.deviceId != session.deviceId
                                 ) {
-                                    TextButton(onClick = { revokeDeviceId = device.deviceId }) {
-                                        Text("Intrekken")
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        if (device.access == AccessMode.RW) {
+                                            TextButton(onClick = { transferOwnerDeviceId = device.deviceId }) {
+                                                Text("Maak eigenaar")
+                                            }
+                                        }
+                                        TextButton(onClick = { revokeDeviceId = device.deviceId }) {
+                                            Text("Intrekken")
+                                        }
                                     }
                                 }
                             }
@@ -1113,6 +1177,30 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
             onJoin = { code ->
                 showJoin = false
                 controller.claimPairing(code)
+            },
+        )
+    }
+
+    transferOwnerDeviceId?.let { deviceId ->
+        val device = state.devices.firstOrNull { it.deviceId == deviceId }
+        AlertDialog(
+            onDismissRequest = { transferOwnerDeviceId = null },
+            title = { Text("Eigenaarschap overdragen?") },
+            text = {
+                Text(
+                    "Na overdracht is " + (device?.name ?: "dit gekoppelde apparaat") +
+                        " de eigenaar. Dit apparaat houdt RW-toegang, maar kan daarna niet meer " +
+                        "koppelen, intrekken of verwijderen als eigenaar."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    transferOwnerDeviceId = null
+                    controller.transferOwnership(deviceId)
+                }) { Text("Overdragen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { transferOwnerDeviceId = null }) { Text("Annuleer") }
             },
         )
     }
