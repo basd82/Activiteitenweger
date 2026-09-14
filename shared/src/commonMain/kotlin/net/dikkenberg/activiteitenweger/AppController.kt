@@ -36,6 +36,7 @@ import net.dikkenberg.activiteitenweger.platform.authenticateBiometric
 import net.dikkenberg.activiteitenweger.platform.biometricDisplayName
 import net.dikkenberg.activiteitenweger.platform.pickExcelFileBytes
 import net.dikkenberg.activiteitenweger.platform.saveExcelFile
+import net.dikkenberg.activiteitenweger.platform.saveRecoveryCodeToPasswordManager
 import net.dikkenberg.activiteitenweger.storage.AppSecuritySettings
 import net.dikkenberg.activiteitenweger.storage.AppSecurityStore
 import net.dikkenberg.activiteitenweger.storage.SessionStore
@@ -305,6 +306,14 @@ class AppController(
 
     fun clearRecoveryCredential() {
         _state.value = _state.value.copy(recoveryCredential = null)
+    }
+
+    fun saveRecoveryCredentialToPasswordManager() = launchBusy {
+        val recovery = requireNotNull(_state.value.recoveryCredential)
+        val profile = requireNotNull(_state.value.selectedSession)
+        val saved = saveRecoveryCodeToPasswordManager(profile.label, recovery.code)
+        check(saved) { "Opslaan in de wachtwoordmanager is op dit apparaat niet gelukt" }
+        _state.value = _state.value.copy(message = "Herstelcode opgeslagen in wachtwoordmanager")
     }
 
     fun revokeRecoveryCredential() = launchBusy {
