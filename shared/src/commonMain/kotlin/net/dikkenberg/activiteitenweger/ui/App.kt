@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -244,11 +245,43 @@ private fun TodayScreen(state: AppUiState, controller: AppController) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text(state.selectedSession?.label ?: "Vandaag", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(8.dp))
+        val target = state.selectedSession?.dailyPointTarget ?: 17.5
+        val orangeAbove = state.selectedSession?.dailyPointOrangeAbove ?: 0.0
+        val redAbove = state.selectedSession?.dailyPointRedAbove ?: 5.0
+        val difference = score - target
+        val targetColor = when {
+            difference <= orangeAbove -> Color(0xFF2E7D32)
+            difference <= redAbove -> Color(0xFFF57C00)
+            else -> MaterialTheme.colorScheme.error
+        }
+        val targetText = when {
+            difference <= 0.0 -> "Binnen streefwaarde"
+            difference <= 5.0 -> "${formatPoints(difference)} boven streefwaarde"
+            else -> "${formatPoints(difference)} boven streefwaarde"
+        }
+
         ElevatedCard(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(
+                Modifier.fillMaxWidth().padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Column {
                     Text("Dagtotaal", style = MaterialTheme.typography.labelLarge)
-                    Text(formatPoints(score), style = MaterialTheme.typography.headlineLarge)
+                    Text(
+                        formatPoints(score),
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = targetColor,
+                    )
+                    Text(
+                        "Streefwaarde: ${formatPoints(target)} punten",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        targetText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = targetColor,
+                    )
                 }
                 Text("${today.size} afgerond", style = MaterialTheme.typography.bodyMedium)
             }
@@ -506,6 +539,7 @@ private fun ActivityEditorDialog(
     var startTime by remember { mutableStateOf(initialStartTime) }
     var endDate by remember { mutableStateOf(initialEndDate) }
     var endTime by remember { mutableStateOf(initialEndTime) }
+    var endDateManuallyChanged by remember { mutableStateOf(false) }
 
     var showStartDatePicker by remember { mutableStateOf(false) }
     var showStartTimePicker by remember { mutableStateOf(false) }
@@ -597,7 +631,11 @@ private fun ActivityEditorDialog(
             initialDate = startDate,
             onDismiss = { showStartDatePicker = false },
             onSelected = {
+                val previousStartDate = startDate
                 startDate = it
+                if (!endDateManuallyChanged && endDate == previousStartDate) {
+                    endDate = it
+                }
                 showStartDatePicker = false
             },
         )
@@ -622,6 +660,7 @@ private fun ActivityEditorDialog(
             onDismiss = { showEndDatePicker = false },
             onSelected = {
                 endDate = it
+                endDateManuallyChanged = true
                 showEndDatePicker = false
             },
         )
@@ -799,7 +838,10 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column {
-                                Text(date, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "${dutchWeekday(date)} · ${formatIsoDateForDisplay(date)}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
                                 Text(
                                     "${dayItems.size} ${if (dayItems.size == 1) "activiteit" else "activiteiten"}",
                                     style = MaterialTheme.typography.bodySmall,
@@ -828,7 +870,7 @@ private fun HistoryScreen(state: AppUiState, controller: AppController) {
                 item {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Activiteiten op $date",
+                        "Activiteiten op ${dutchWeekday(date).lowercase()} ${formatIsoDateForDisplay(date)}",
                         style = MaterialTheme.typography.titleMedium,
                     )
                 }
@@ -976,7 +1018,13 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
     val session = state.selectedSession
     var showJoin by remember { mutableStateOf(false) }
     var revokeDeviceId by remember { mutableStateOf<String?>(null) }
+    var transferOwnerDeviceId by remember { mutableStateOf<String?>(null) }
     var confirmSelfRevoke by remember { mutableStateOf(false) }
+    var showRevokedDevices by remember { mutableStateOf(false) }
+    val currentDevice = state.devices.firstOrNull { it.deviceId == session?.deviceId }
+    var currentDeviceName by remember(state.selectedVaultId, currentDevice?.name) {
+        mutableStateOf(currentDevice?.name.orEmpty())
+    }
     val scrollState = rememberScrollState()
 
     LaunchedEffect(state.selectedVaultId, session?.access) {
@@ -1043,10 +1091,44 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
                 }
             }
 
-            if (state.devices.isEmpty()) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Naam van dit apparaat", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = currentDeviceName,
+                        onValueChange = { currentDeviceName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Bijvoorbeeld: Bas iPhone") },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = { controller.updateDeviceName(currentDeviceName) },
+                        enabled = !state.busy && currentDeviceName.trim().isNotEmpty(),
+                    ) { Text("Apparaatnaam opslaan") }
+                    Text(
+                        "Deze naam wordt versleuteld opgeslagen en is alleen binnen dit profiel leesbaar.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
+            val revokedCount = state.devices.count { it.status == "REVOKED" }
+            val visibleDevices = state.devices.filter { showRevokedDevices || it.status != "REVOKED" }
+            if (revokedCount > 0) {
+                TextButton(onClick = { showRevokedDevices = !showRevokedDevices }) {
+                    Text(
+                        if (showRevokedDevices) "Ingetrokken apparaten verbergen"
+                        else "Ingetrokken apparaten tonen ($revokedCount)"
+                    )
+                }
+            }
+
+            if (visibleDevices.isEmpty()) {
                 Text("Nog geen apparatenlijst geladen.")
             } else {
-                state.devices.forEach { device ->
+                visibleDevices.forEach { device ->
                     OutlinedCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
                             Row(
@@ -1055,15 +1137,32 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
                             ) {
                                 Column(Modifier.weight(1f)) {
                                     Text(
-                                        when {
+                                        device.name ?: when {
                                             device.deviceId == session.deviceId -> "Dit apparaat"
                                             device.owner -> "Eigenaar"
                                             else -> "Gekoppeld apparaat"
                                         },
                                         style = MaterialTheme.typography.titleSmall,
                                     )
-                                    Text("Toegang: ${device.access.name}")
-                                    Text("Status: ${device.status}", style = MaterialTheme.typography.bodySmall)
+                                    if (device.deviceId == session.deviceId) {
+                                        Text("Dit apparaat", style = MaterialTheme.typography.bodySmall)
+                                    } else if (device.owner) {
+                                        Text("Eigenaar", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text(
+                                        "Toegang: " + when (device.access) {
+                                            AccessMode.R -> "alleen lezen"
+                                            AccessMode.RW -> "lezen en schrijven"
+                                        }
+                                    )
+                                    Text(
+                                        "Status: " + when (device.status) {
+                                            "ACTIVE" -> "Actief"
+                                            "REVOKED" -> "Ingetrokken"
+                                            else -> device.status
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
                                     device.lastSeenAt?.let {
                                         Text("Laatst actief: ${formatLocalTime(it)}", style = MaterialTheme.typography.bodySmall)
                                     }
@@ -1074,8 +1173,15 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
                                     device.status == "ACTIVE" &&
                                     device.deviceId != session.deviceId
                                 ) {
-                                    TextButton(onClick = { revokeDeviceId = device.deviceId }) {
-                                        Text("Intrekken")
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        if (device.access == AccessMode.RW) {
+                                            TextButton(onClick = { transferOwnerDeviceId = device.deviceId }) {
+                                                Text("Maak eigenaar")
+                                            }
+                                        }
+                                        TextButton(onClick = { revokeDeviceId = device.deviceId }) {
+                                            Text("Intrekken")
+                                        }
                                     }
                                 }
                             }
@@ -1113,6 +1219,30 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
             onJoin = { code ->
                 showJoin = false
                 controller.claimPairing(code)
+            },
+        )
+    }
+
+    transferOwnerDeviceId?.let { deviceId ->
+        val device = state.devices.firstOrNull { it.deviceId == deviceId }
+        AlertDialog(
+            onDismissRequest = { transferOwnerDeviceId = null },
+            title = { Text("Eigenaarschap overdragen?") },
+            text = {
+                Text(
+                    "Na overdracht is " + (device?.name ?: "dit gekoppelde apparaat") +
+                        " de eigenaar. Dit apparaat houdt RW-toegang, maar kan daarna niet meer " +
+                        "koppelen, intrekken of verwijderen als eigenaar."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    transferOwnerDeviceId = null
+                    controller.transferOwnership(deviceId)
+                }) { Text("Overdragen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { transferOwnerDeviceId = null }) { Text("Annuleer") }
             },
         )
     }
@@ -1161,6 +1291,27 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var addingPreset by remember { mutableStateOf(false) }
     var editingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
     var deletingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
+    var targetPointsInput by remember(state.selectedVaultId, state.selectedSession?.dailyPointTarget) {
+        mutableStateOf(
+            (state.selectedSession?.dailyPointTarget ?: 17.5)
+                .toString()
+                .replace('.', ',')
+        )
+    }
+    var orangeAboveInput by remember(state.selectedVaultId, state.selectedSession?.dailyPointOrangeAbove) {
+        mutableStateOf(
+            (state.selectedSession?.dailyPointOrangeAbove ?: 0.0)
+                .toString()
+                .replace('.', ',')
+        )
+    }
+    var redAboveInput by remember(state.selectedVaultId, state.selectedSession?.dailyPointRedAbove) {
+        mutableStateOf(
+            (state.selectedSession?.dailyPointRedAbove ?: 5.0)
+                .toString()
+                .replace('.', ',')
+        )
+    }
     val settingsScrollState = rememberScrollState()
     var importYear by remember {
         mutableStateOf(
@@ -1210,6 +1361,65 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         TextButton(onClick = { showLicense = true }) { Text("Licentie-informatie") }
         Spacer(Modifier.height(12.dp))
         Button(onClick = controller::syncCurrent, enabled = !state.busy) { Text("Nu synchroniseren") }
+        Spacer(Modifier.height(20.dp))
+        Text("Streefpunten per dag", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Stel het dagdoel en de kleurgrenzen in. De grenzen zijn het aantal punten " +
+                "boven de streefwaarde waarop oranje en rood beginnen."
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = targetPointsInput,
+            onValueChange = { targetPointsInput = it },
+            label = { Text("Streefpunten") },
+            singleLine = true,
+            enabled = state.canWrite && !state.busy,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = orangeAboveInput,
+                onValueChange = { orangeAboveInput = it },
+                label = { Text("Oranje vanaf +") },
+                singleLine = true,
+                enabled = state.canWrite && !state.busy,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedTextField(
+                value = redAboveInput,
+                onValueChange = { redAboveInput = it },
+                label = { Text("Rood vanaf +") },
+                singleLine = true,
+                enabled = state.canWrite && !state.busy,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        val targetValue = targetPointsInput.trim().replace(',', '.').toDoubleOrNull()
+        val orangeValue = orangeAboveInput.trim().replace(',', '.').toDoubleOrNull()
+        val redValue = redAboveInput.trim().replace(',', '.').toDoubleOrNull()
+        Button(
+            onClick = {
+                if (targetValue != null && orangeValue != null && redValue != null) {
+                    controller.saveDailyPointSettings(targetValue, orangeValue, redValue)
+                }
+            },
+            enabled = state.canWrite &&
+                !state.busy &&
+                targetValue != null && targetValue >= 0.0 &&
+                orangeValue != null && orangeValue >= 0.0 &&
+                redValue != null && redValue >= orangeValue,
+        ) {
+            Text("Streefpunten en kleurgrenzen opslaan")
+        }
+        if (!state.canWrite) {
+            Text(
+                "De streefwaarde kan niet worden gewijzigd in een alleen-lezen profiel.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
         Spacer(Modifier.height(20.dp))
         Text("Categorieën en punten", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -2074,6 +2284,18 @@ private fun timeRange(item: ActivityItem): String {
     val end = item.payload.endedAt?.let(::formatLocalTime)
     return if (end == null) "Vanaf $start" else "$start – $end"
 }
+
+private fun dutchWeekday(value: String): String =
+    when (LocalDate.parse(value).dayOfWeek.name) {
+        "MONDAY" -> "Maandag"
+        "TUESDAY" -> "Dinsdag"
+        "WEDNESDAY" -> "Woensdag"
+        "THURSDAY" -> "Donderdag"
+        "FRIDAY" -> "Vrijdag"
+        "SATURDAY" -> "Zaterdag"
+        "SUNDAY" -> "Zondag"
+        else -> ""
+    }
 
 private fun formatIsoDateForDisplay(value: String): String {
     val date = LocalDate.parse(value)

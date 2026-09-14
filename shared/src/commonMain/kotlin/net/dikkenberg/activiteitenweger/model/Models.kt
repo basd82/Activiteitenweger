@@ -45,6 +45,9 @@ data class ProfileSettingsPayload(
     val label: String,
     val categories: List<ActivityCategory> = ActivityCategory.defaults,
     val activityPresets: List<ActivityPreset> = emptyList(),
+    val dailyPointTarget: Double = 17.5,
+    val dailyPointOrangeAbove: Double = 0.0,
+    val dailyPointRedAbove: Double = 5.0,
 )
 
 @Serializable
@@ -151,6 +154,9 @@ data class VaultSession(
     val cursor: Long = 0,
     val categories: List<ActivityCategory> = ActivityCategory.defaults,
     val activityPresets: List<ActivityPreset> = emptyList(),
+    val dailyPointTarget: Double = 17.5,
+    val dailyPointOrangeAbove: Double = 0.0,
+    val dailyPointRedAbove: Double = 5.0,
     val settingsRevision: Long = 0,
 )
 
@@ -163,6 +169,7 @@ data class DeviceInfo(
     val createdAt: String,
     val lastSeenAt: String? = null,
     val revokedAt: String? = null,
+    val name: String? = null,
 )
 
 

@@ -168,7 +168,28 @@ class AppController(
 
     fun refreshDevices() = launchBusy {
         val session = requireNotNull(_state.value.selectedSession)
-        _state.value = _state.value.copy(devices = repository.devices(session))
+        val refreshed = repository.refreshSessionAccess(session)
+        replaceSession(refreshed)
+        _state.value = _state.value.copy(devices = repository.devices(refreshed))
+    }
+
+    fun updateDeviceName(name: String) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        repository.updateDeviceName(session, name)
+        _state.value = _state.value.copy(
+            devices = repository.devices(session),
+            message = "Apparaatnaam opgeslagen",
+        )
+    }
+
+    fun transferOwnership(deviceId: String) = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val updated = repository.transferOwnership(session, deviceId)
+        replaceSession(updated)
+        _state.value = _state.value.copy(
+            devices = repository.devices(updated),
+            message = "Eigenaarschap overgedragen",
+        )
     }
 
     fun revokeDevice(deviceId: String) = launchBusy {
@@ -384,6 +405,32 @@ class AppController(
         )
         replaceSession(updated)
         _state.value = _state.value.copy(message = "Profielnaam gewijzigd")
+    }
+
+    fun saveDailyPointSettings(
+        target: Double,
+        orangeAbove: Double,
+        redAbove: Double,
+    ) = launchBusy(syncAfter = true) {
+        val session = requireNotNull(_state.value.selectedSession)
+        check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
+        require(target.isFinite() && target >= 0.0) {
+            "Het streefpuntenaantal moet nul of hoger zijn"
+        }
+        require(orangeAbove.isFinite() && orangeAbove >= 0.0) {
+            "De oranje grens moet nul of hoger zijn"
+        }
+        require(redAbove.isFinite() && redAbove >= orangeAbove) {
+            "De rode grens moet gelijk aan of hoger zijn dan de oranje grens"
+        }
+        val updated = repository.updateProfileSettings(
+            session = session,
+            dailyPointTarget = target,
+            dailyPointOrangeAbove = orangeAbove,
+            dailyPointRedAbove = redAbove,
+        )
+        replaceSession(updated)
+        _state.value = _state.value.copy(message = "Streefpunten en kleurgrenzen opgeslagen")
     }
 
     fun saveCategory(
@@ -706,8 +753,10 @@ class AppController(
         _state.value = before.copy(syncing = true)
 
         try {
+            val accessRefreshed = repository.refreshSessionAccess(session)
+            replaceSession(accessRefreshed)
             val (updatedSession, activities) = repository.syncActivities(
-                session = session,
+                session = accessRefreshed,
                 currentActivities = if (fullRefresh) emptyList() else before.activities,
                 fullRefresh = fullRefresh,
             )

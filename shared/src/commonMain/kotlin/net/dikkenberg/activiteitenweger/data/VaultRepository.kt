@@ -31,6 +31,7 @@ import net.dikkenberg.activiteitenweger.network.ClaimPairingRequest
 import net.dikkenberg.activiteitenweger.network.CreatePairingInviteRequest
 import net.dikkenberg.activiteitenweger.network.CreateVaultRequest
 import net.dikkenberg.activiteitenweger.network.RemoteRecord
+import net.dikkenberg.activiteitenweger.network.UpdateDeviceLabelRequest
 import net.dikkenberg.activiteitenweger.network.UpsertRecordRequest
 import net.dikkenberg.activiteitenweger.storage.CachedEncryptedRecord
 import net.dikkenberg.activiteitenweger.storage.LocalSyncStore
@@ -196,18 +197,118 @@ class VaultRepository(
         return session
     }
 
-    suspend fun devices(session: VaultSession): List<DeviceInfo> =
-        api.devices(session).devices.map {
+    suspend fun devices(session: VaultSession): List<DeviceInfo> {
+        val raw = api.devices(session).devices.sortedBy { it.createdAt }
+        val mapped = raw.map { response ->
+            val name = if (response.labelCiphertext != null && response.labelNonce != null) {
+                runCatching {
+                    crypto.xChaCha20Poly1305Decrypt(
+                        key = session.vaultKey.fromBase64Url(),
+                        nonce24 = response.labelNonce.fromBase64Url(),
+                        ciphertext = response.labelCiphertext.fromBase64Url(),
+                        associatedData = deviceLabelAssociatedData(session.vaultId, response.deviceId),
+                    ).decodeToString()
+                }.getOrNull()
+            } else {
+                null
+            }
             DeviceInfo(
-                deviceId = it.deviceId,
-                access = it.access,
-                owner = it.owner,
-                status = it.status,
-                createdAt = it.createdAt,
-                lastSeenAt = it.lastSeenAt,
-                revokedAt = it.revokedAt,
+                deviceId = response.deviceId,
+                access = response.access,
+                owner = response.owner,
+                status = response.status,
+                createdAt = response.createdAt,
+                lastSeenAt = response.lastSeenAt,
+                revokedAt = response.revokedAt,
+                name = name?.trim()?.takeIf(String::isNotBlank),
             )
         }
+
+        val unnamedActive = mapped.withIndex().filter { (_, device) ->
+            device.status == "ACTIVE" && device.name == null
+        }
+        if (session.owner && unnamedActive.isNotEmpty()) {
+            unnamedActive.forEach { (index, device) ->
+                updateDeviceNameFor(
+                    session = session,
+                    deviceId = device.deviceId,
+                    name = "Apparaat " + (index + 1),
+                )
+            }
+            return api.devices(session).devices.sortedBy { it.createdAt }.map { response ->
+                val name = if (response.labelCiphertext != null && response.labelNonce != null) {
+                    runCatching {
+                        crypto.xChaCha20Poly1305Decrypt(
+                            key = session.vaultKey.fromBase64Url(),
+                            nonce24 = response.labelNonce.fromBase64Url(),
+                            ciphertext = response.labelCiphertext.fromBase64Url(),
+                            associatedData = deviceLabelAssociatedData(session.vaultId, response.deviceId),
+                        ).decodeToString()
+                    }.getOrNull()
+                } else null
+                DeviceInfo(
+                    deviceId = response.deviceId,
+                    access = response.access,
+                    owner = response.owner,
+                    status = response.status,
+                    createdAt = response.createdAt,
+                    lastSeenAt = response.lastSeenAt,
+                    revokedAt = response.revokedAt,
+                    name = name?.trim()?.takeIf(String::isNotBlank),
+                )
+            }
+        }
+        return mapped
+    }
+
+    suspend fun updateDeviceName(session: VaultSession, name: String) {
+        updateDeviceNameFor(session, session.deviceId, name)
+    }
+
+    private suspend fun updateDeviceNameFor(
+        session: VaultSession,
+        deviceId: String,
+        name: String,
+    ) {
+        val clean = name.trim()
+        require(clean.isNotBlank()) { "Vul een naam voor dit apparaat in" }
+        require(clean.length <= 80) { "De apparaatnaam mag maximaal 80 tekens zijn" }
+        val nonce = crypto.randomBytes(24)
+        val ciphertext = crypto.xChaCha20Poly1305Encrypt(
+            key = session.vaultKey.fromBase64Url(),
+            nonce24 = nonce,
+            plaintext = clean.encodeToByteArray(),
+            associatedData = deviceLabelAssociatedData(session.vaultId, deviceId),
+        )
+        api.updateDeviceLabel(
+            session = session,
+            request = UpdateDeviceLabelRequest(
+                labelCiphertext = ciphertext.toBase64Url(),
+                labelNonce = nonce.toBase64Url(),
+            ),
+            deviceId = deviceId,
+        )
+    }
+
+    suspend fun refreshSessionAccess(session: VaultSession): VaultSession {
+        val me = api.me(session)
+        val updated = session.copy(
+            access = me.access,
+            owner = me.owner,
+            keyEpoch = me.currentKeyEpoch,
+        )
+        sessions.save(updated)
+        return updated
+    }
+
+    suspend fun transferOwnership(session: VaultSession, deviceId: String): VaultSession {
+        check(session.owner) { "Alleen de eigenaar kan het eigenaarschap overdragen" }
+        check(deviceId != session.deviceId) { "Dit apparaat is al eigenaar" }
+        api.transferOwnership(session, deviceId)
+        val updated = session.copy(owner = false)
+        sessions.save(updated)
+        return updated
+    }
 
     suspend fun revokeDevice(session: VaultSession, deviceId: String) {
         check(session.owner) { "Alleen de eigenaar kan toegang intrekken" }
@@ -360,6 +461,9 @@ class VaultRepository(
                 label = current.label,
                 categories = current.categories,
                 activityPresets = current.activityPresets,
+                dailyPointTarget = current.dailyPointTarget,
+                dailyPointOrangeAbove = current.dailyPointOrangeAbove,
+                dailyPointRedAbove = current.dailyPointRedAbove,
             )
             state = localSyncStore.load(current.vaultId)
         }
@@ -493,12 +597,18 @@ class VaultRepository(
         label: String = session.label,
         categories: List<ActivityCategory> = session.categories,
         activityPresets: List<ActivityPreset> = session.activityPresets,
+        dailyPointTarget: Double = session.dailyPointTarget,
+        dailyPointOrangeAbove: Double = session.dailyPointOrangeAbove,
+        dailyPointRedAbove: Double = session.dailyPointRedAbove,
     ): VaultSession =
         queueProfileSettingsMutation(
             session = session,
             label = label,
             categories = categories,
             activityPresets = activityPresets,
+            dailyPointTarget = dailyPointTarget,
+            dailyPointOrangeAbove = dailyPointOrangeAbove,
+            dailyPointRedAbove = dailyPointRedAbove,
         )
 
     suspend fun deleteVault(session: VaultSession) {
@@ -513,9 +623,21 @@ class VaultRepository(
         label: String,
         categories: List<ActivityCategory>,
         activityPresets: List<ActivityPreset>,
+        dailyPointTarget: Double,
+        dailyPointOrangeAbove: Double,
+        dailyPointRedAbove: Double,
     ): VaultSession {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
         require(categories.isNotEmpty()) { "Er moet minimaal één categorie zijn" }
+        require(dailyPointTarget.isFinite() && dailyPointTarget >= 0.0) {
+            "Het streefpuntenaantal moet nul of hoger zijn"
+        }
+        require(dailyPointOrangeAbove.isFinite() && dailyPointOrangeAbove >= 0.0) {
+            "De oranje grens moet nul of hoger zijn"
+        }
+        require(dailyPointRedAbove.isFinite() && dailyPointRedAbove >= dailyPointOrangeAbove) {
+            "De rode grens moet gelijk aan of hoger zijn dan de oranje grens"
+        }
 
         val categoryIds = categories.mapTo(mutableSetOf()) { it.id }
         check(activityPresets.all { it.categoryId in categoryIds }) {
@@ -526,6 +648,9 @@ class VaultRepository(
             label = label.trim().ifBlank { "Mijn Activiteitenweger" },
             categories = categories,
             activityPresets = activityPresets,
+            dailyPointTarget = dailyPointTarget,
+            dailyPointOrangeAbove = dailyPointOrangeAbove,
+            dailyPointRedAbove = dailyPointRedAbove,
         )
         val pending = queueEncryptedMutation(
             session = session,
@@ -539,6 +664,9 @@ class VaultRepository(
             label = payload.label,
             categories = payload.categories,
             activityPresets = payload.activityPresets,
+            dailyPointTarget = payload.dailyPointTarget,
+            dailyPointOrangeAbove = payload.dailyPointOrangeAbove,
+            dailyPointRedAbove = payload.dailyPointRedAbove,
             settingsRevision = pending.revision,
         )
         sessions.save(updated)
@@ -837,6 +965,9 @@ class VaultRepository(
             label = payload.label.trim().ifBlank { label },
             categories = categories,
             activityPresets = payload.activityPresets.filter { it.categoryId in categoryIds },
+            dailyPointTarget = payload.dailyPointTarget,
+            dailyPointOrangeAbove = payload.dailyPointOrangeAbove,
+            dailyPointRedAbove = payload.dailyPointRedAbove,
             settingsRevision = revision,
         )
     }
@@ -935,6 +1066,9 @@ class VaultRepository(
             canonical.encodeToByteArray(),
         )
     }
+
+    private fun deviceLabelAssociatedData(vaultId: String, deviceId: String): ByteArray =
+        ("AW-DEVICE-LABEL-V1\n" + vaultId + "\n" + deviceId).encodeToByteArray()
 
     private fun pairingAssociatedData(
         inviteId: String,

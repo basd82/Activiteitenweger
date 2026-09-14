@@ -56,8 +56,25 @@ data class DeviceResponse(
     val createdAt: String,
     val lastSeenAt: String? = null,
     val revokedAt: String? = null,
+    val labelCiphertext: String? = null,
+    val labelNonce: String? = null,
 )
 
+@Serializable
+data class UpdateDeviceLabelRequest(
+    val labelCiphertext: String,
+    val labelNonce: String,
+)
+
+@Serializable
+data class StatusResponse(val status: String)
+
+@Serializable
+data class OwnershipTransferResponse(
+    val status: String,
+    val previousOwnerDeviceId: String,
+    val ownerDeviceId: String,
+)
 
 @Serializable
 data class CreatePairingInviteRequest(
