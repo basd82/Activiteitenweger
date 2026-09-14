@@ -197,33 +197,79 @@ class VaultRepository(
         return session
     }
 
-    suspend fun devices(session: VaultSession): List<DeviceInfo> =
-        api.devices(session).devices.map {
-            val name = if (it.labelCiphertext != null && it.labelNonce != null) {
+    suspend fun devices(session: VaultSession): List<DeviceInfo> {
+        val raw = api.devices(session).devices.sortedBy { it.createdAt }
+        val mapped = raw.map { response ->
+            val name = if (response.labelCiphertext != null && response.labelNonce != null) {
                 runCatching {
                     crypto.xChaCha20Poly1305Decrypt(
                         key = session.vaultKey.fromBase64Url(),
-                        nonce24 = it.labelNonce.fromBase64Url(),
-                        ciphertext = it.labelCiphertext.fromBase64Url(),
-                        associatedData = deviceLabelAssociatedData(session.vaultId, it.deviceId),
+                        nonce24 = response.labelNonce.fromBase64Url(),
+                        ciphertext = response.labelCiphertext.fromBase64Url(),
+                        associatedData = deviceLabelAssociatedData(session.vaultId, response.deviceId),
                     ).decodeToString()
                 }.getOrNull()
             } else {
                 null
             }
             DeviceInfo(
-                deviceId = it.deviceId,
-                access = it.access,
-                owner = it.owner,
-                status = it.status,
-                createdAt = it.createdAt,
-                lastSeenAt = it.lastSeenAt,
-                revokedAt = it.revokedAt,
+                deviceId = response.deviceId,
+                access = response.access,
+                owner = response.owner,
+                status = response.status,
+                createdAt = response.createdAt,
+                lastSeenAt = response.lastSeenAt,
+                revokedAt = response.revokedAt,
                 name = name?.trim()?.takeIf(String::isNotBlank),
             )
         }
 
+        val unnamedActive = mapped.withIndex().filter { (_, device) ->
+            device.status == "ACTIVE" && device.name == null
+        }
+        if (session.owner && unnamedActive.isNotEmpty()) {
+            unnamedActive.forEach { (index, device) ->
+                updateDeviceNameFor(
+                    session = session,
+                    deviceId = device.deviceId,
+                    name = "Apparaat " + (index + 1),
+                )
+            }
+            return api.devices(session).devices.sortedBy { it.createdAt }.map { response ->
+                val name = if (response.labelCiphertext != null && response.labelNonce != null) {
+                    runCatching {
+                        crypto.xChaCha20Poly1305Decrypt(
+                            key = session.vaultKey.fromBase64Url(),
+                            nonce24 = response.labelNonce.fromBase64Url(),
+                            ciphertext = response.labelCiphertext.fromBase64Url(),
+                            associatedData = deviceLabelAssociatedData(session.vaultId, response.deviceId),
+                        ).decodeToString()
+                    }.getOrNull()
+                } else null
+                DeviceInfo(
+                    deviceId = response.deviceId,
+                    access = response.access,
+                    owner = response.owner,
+                    status = response.status,
+                    createdAt = response.createdAt,
+                    lastSeenAt = response.lastSeenAt,
+                    revokedAt = response.revokedAt,
+                    name = name?.trim()?.takeIf(String::isNotBlank),
+                )
+            }
+        }
+        return mapped
+    }
+
     suspend fun updateDeviceName(session: VaultSession, name: String) {
+        updateDeviceNameFor(session, session.deviceId, name)
+    }
+
+    private suspend fun updateDeviceNameFor(
+        session: VaultSession,
+        deviceId: String,
+        name: String,
+    ) {
         val clean = name.trim()
         require(clean.isNotBlank()) { "Vul een naam voor dit apparaat in" }
         require(clean.length <= 80) { "De apparaatnaam mag maximaal 80 tekens zijn" }
@@ -232,14 +278,15 @@ class VaultRepository(
             key = session.vaultKey.fromBase64Url(),
             nonce24 = nonce,
             plaintext = clean.encodeToByteArray(),
-            associatedData = deviceLabelAssociatedData(session.vaultId, session.deviceId),
+            associatedData = deviceLabelAssociatedData(session.vaultId, deviceId),
         )
         api.updateDeviceLabel(
-            session,
-            UpdateDeviceLabelRequest(
+            session = session,
+            request = UpdateDeviceLabelRequest(
                 labelCiphertext = ciphertext.toBase64Url(),
                 labelNonce = nonce.toBase64Url(),
             ),
+            deviceId = deviceId,
         )
     }
 
