@@ -4,18 +4,20 @@
 package net.dikkenberg.activiteitenweger
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
+import net.dikkenberg.activiteitenweger.platform.initAndroidBiometricActivity
 import net.dikkenberg.activiteitenweger.platform.initAndroidFileDialogs
 import net.dikkenberg.activiteitenweger.platform.initAndroidPlatform
 import net.dikkenberg.activiteitenweger.ui.ActiviteitenwegerApp
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private lateinit var controller: AppController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         initAndroidFileDialogs(this)
+        initAndroidBiometricActivity(this)
         initAndroidPlatform(applicationContext)
         controller = AppController()
         setContent {
