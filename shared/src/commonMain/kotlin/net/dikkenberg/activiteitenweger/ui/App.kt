@@ -1416,6 +1416,132 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
 }
 
 @Composable
+private fun AppSecuritySetupDialog(
+    biometricName: String?,
+    initialBiometrics: Boolean,
+    initialTimeout: Long,
+    onDismiss: () -> Unit,
+    onSave: (String, Boolean, Long) -> Unit,
+) {
+    var pin by remember { mutableStateOf("") }
+    var confirmPin by remember { mutableStateOf("") }
+    var useBiometrics by remember(initialBiometrics) {
+        mutableStateOf(initialBiometrics && biometricName != null)
+    }
+    var timeout by remember(initialTimeout) { mutableStateOf(initialTimeout) }
+    val pinValid = pin.length in 4..12 && pin.all(Char::isDigit) && pin == confirmPin
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("App-beveiliging") },
+        text = {
+            Column {
+                Text("Kies een PIN van 4 tot 12 cijfers. Deze PIN blijft alleen op dit apparaat.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter(Char::isDigit).take(12) },
+                    label = { Text("Nieuwe PIN") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = confirmPin,
+                    onValueChange = { confirmPin = it.filter(Char::isDigit).take(12) },
+                    label = { Text("PIN herhalen") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (confirmPin.isNotEmpty() && pin != confirmPin) {
+                    Text("De PIN-codes zijn niet gelijk.", color = MaterialTheme.colorScheme.error)
+                }
+                if (biometricName != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = useBiometrics,
+                            onCheckedChange = { useBiometrics = it },
+                        )
+                        Text("Ook ontgrendelen met " + biometricName)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Automatisch opnieuw vergrendelen", style = MaterialTheme.typography.labelLarge)
+                listOf(
+                    0L to "Direct",
+                    60L to "Na 1 minuut",
+                    300L to "Na 5 minuten",
+                    900L to "Na 15 minuten",
+                ).forEach { pair ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = timeout == pair.first,
+                            onClick = { timeout = pair.first },
+                        )
+                        Text(pair.second)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(pin, useBiometrics, timeout) },
+                enabled = pinValid,
+            ) {
+                Text("Opslaan")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
+}
+
+@Composable
+private fun AppSecurityDisableDialog(
+    onDismiss: () -> Unit,
+    onDisable: (String) -> Unit,
+) {
+    var pin by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("App-beveiliging uitschakelen?") },
+        text = {
+            Column {
+                Text("Voer je huidige PIN in om de lokale app-vergrendeling uit te schakelen.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter(Char::isDigit).take(12) },
+                    label = { Text("Huidige PIN") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onDisable(pin) },
+                enabled = pin.length >= 4,
+            ) {
+                Text("Uitschakelen")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
+}
+
+@Composable
 private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showLicense by remember { mutableStateOf(false) }
@@ -2679,6 +2805,15 @@ private fun formatDuration(seconds: Long): String {
     val s = seconds % 60
     return if (h > 0) "${h}u ${m.toString().padStart(2, '0')}m" else "${m}m ${s.toString().padStart(2, '0')}s"
 }
+
+private fun formatLockTimeout(seconds: Long): String =
+    when (seconds) {
+        0L -> "direct"
+        60L -> "na 1 minuut"
+        300L -> "na 5 minuten"
+        900L -> "na 15 minuten"
+        else -> "na " + seconds + " seconden"
+    }
 
 private fun formatPoints(value: Double): String {
     val rounded = kotlin.math.round(value * 10.0) / 10.0
