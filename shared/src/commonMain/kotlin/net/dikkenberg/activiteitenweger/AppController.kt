@@ -283,7 +283,57 @@ class AppController(
         val session = requireNotNull(_state.value.selectedSession)
         val refreshed = repository.refreshSessionAccess(session)
         replaceSession(refreshed)
-        _state.value = _state.value.copy(devices = repository.devices(refreshed))
+        val devices = repository.devices(refreshed)
+        val recovery = if (refreshed.owner) repository.recoveryStatus(refreshed) else null
+        _state.value = _state.value.copy(
+            devices = devices,
+            recoveryId = recovery?.first,
+            recoveryCreatedAt = recovery?.second,
+        )
+    }
+
+    fun createRecoveryCredential() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val recovery = repository.createRecoveryCredential(session)
+        _state.value = _state.value.copy(
+            recoveryCredential = recovery,
+            recoveryId = recovery.recoveryId,
+            recoveryCreatedAt = recovery.createdAt,
+            message = null,
+        )
+    }
+
+    fun clearRecoveryCredential() {
+        _state.value = _state.value.copy(recoveryCredential = null)
+    }
+
+    fun revokeRecoveryCredential() = launchBusy {
+        val session = requireNotNull(_state.value.selectedSession)
+        val recoveryId = requireNotNull(_state.value.recoveryId)
+        repository.revokeRecoveryCredential(session, recoveryId)
+        _state.value = _state.value.copy(
+            recoveryCredential = null,
+            recoveryId = null,
+            recoveryCreatedAt = null,
+            message = "Herstelbackup ingetrokken",
+        )
+    }
+
+    fun claimRecovery(code: String) = launchBusy {
+        val session = repository.claimRecovery(code)
+        _state.value = _state.value.copy(
+            sessions = repository.sessions(),
+            selectedVaultId = session.vaultId,
+            activities = emptyList(),
+            devices = emptyList(),
+            pairingInvitation = null,
+            recoveryCredential = null,
+            recoveryId = null,
+            recoveryCreatedAt = null,
+            message = "Profiel hersteld. Maak direct een nieuwe herstelbackup.",
+        )
+        loadCachedSelectedLocked()
+        syncSelectedLocked(fullRefresh = true, announce = false)
     }
 
     fun updateDeviceName(name: String) = launchBusy {
