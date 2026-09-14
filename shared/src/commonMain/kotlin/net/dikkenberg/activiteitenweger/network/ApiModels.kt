@@ -117,6 +117,18 @@ data class ClaimPairingResponse(
 )
 
 @Serializable
+data class RecoveryStatusResponse(
+    val recovery: RecoveryStatusItem? = null,
+)
+
+@Serializable
+data class RecoveryStatusItem(
+    val recoveryId: String,
+    val keyEpoch: Int,
+    val createdAt: String,
+)
+
+@Serializable
 data class CreateRecoveryRequest(
     val recoveryId: String,
     val recoverySecretHash: String,
