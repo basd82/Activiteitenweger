@@ -34,6 +34,7 @@ import net.dikkenberg.activiteitenweger.platform.CameraPermissionGate
 import net.dikkenberg.activiteitenweger.platform.appBuildNumber
 import net.dikkenberg.activiteitenweger.platform.appVersionName
 import net.dikkenberg.activiteitenweger.platform.copyTextToClipboard
+import net.dikkenberg.activiteitenweger.platform.passwordManagerSaveAvailable
 import net.dikkenberg.activiteitenweger.platform.shareText
 import kotlin.math.abs
 import org.ncgroup.kscan.BarcodeFormat
@@ -1337,6 +1338,7 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
         RecoveryCredentialDialog(
             recovery = recovery,
             onClose = controller::clearRecoveryCredential,
+            onSaveToPasswordManager = controller::saveRecoveryCredentialToPasswordManager,
         )
     }
 
@@ -2466,6 +2468,7 @@ private fun PairingInvitationDialog(
 private fun RecoveryCredentialDialog(
     recovery: net.dikkenberg.activiteitenweger.model.RecoveryCredential,
     onClose: () -> Unit,
+    onSaveToPasswordManager: () -> Unit,
 ) {
     var copied by remember(recovery.code) { mutableStateOf(false) }
 
@@ -2507,6 +2510,15 @@ private fun RecoveryCredentialDialog(
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Delen")
+                    }
+                }
+                if (passwordManagerSaveAvailable()) {
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = onSaveToPasswordManager,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Opslaan in wachtwoordmanager")
                     }
                 }
                 Spacer(Modifier.height(8.dp))
