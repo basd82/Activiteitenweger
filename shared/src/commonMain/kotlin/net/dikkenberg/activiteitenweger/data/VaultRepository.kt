@@ -23,12 +23,15 @@ import net.dikkenberg.activiteitenweger.model.ActivityRecordPayload
 import net.dikkenberg.activiteitenweger.model.DeviceInfo
 import net.dikkenberg.activiteitenweger.model.PairingInvitation
 import net.dikkenberg.activiteitenweger.model.ProfileSettingsPayload
+import net.dikkenberg.activiteitenweger.model.RecoveryCredential
 import net.dikkenberg.activiteitenweger.model.SyncStatus
 import net.dikkenberg.activiteitenweger.model.VaultSession
 import net.dikkenberg.activiteitenweger.network.ApiClient
 import net.dikkenberg.activiteitenweger.network.ApiException
 import net.dikkenberg.activiteitenweger.network.ClaimPairingRequest
+import net.dikkenberg.activiteitenweger.network.ClaimRecoveryRequest
 import net.dikkenberg.activiteitenweger.network.CreatePairingInviteRequest
+import net.dikkenberg.activiteitenweger.network.CreateRecoveryRequest
 import net.dikkenberg.activiteitenweger.network.CreateVaultRequest
 import net.dikkenberg.activiteitenweger.network.RemoteRecord
 import net.dikkenberg.activiteitenweger.network.UpdateDeviceLabelRequest
@@ -195,6 +198,110 @@ class VaultRepository(
         )
         sessions.save(session)
         return session
+    }
+
+    suspend fun createRecoveryCredential(session: VaultSession): RecoveryCredential {
+        check(session.owner) { "Alleen de eigenaar kan een herstelcode maken" }
+        check(session.access == AccessMode.RW) { "Schrijfrechten zijn vereist" }
+
+        val recoveryId = Uuid.random().toString()
+        val secret = crypto.randomBytes(32)
+        val verificationHash = crypto.sha256(
+            "AW-RECOVERY-VERIFY-V1\n".encodeToByteArray() + secret
+        )
+        val wrappingKey = crypto.sha256(
+            "AW-RECOVERY-WRAP-V1\n".encodeToByteArray() + secret
+        )
+        val nonce = crypto.randomBytes(24)
+        val packagePayload = RecoveryKeyPackage(
+            vaultId = session.vaultId,
+            vaultKey = session.vaultKey,
+            label = session.label,
+            keyEpoch = session.keyEpoch,
+        )
+        val ciphertext = crypto.xChaCha20Poly1305Encrypt(
+            key = wrappingKey,
+            nonce24 = nonce,
+            plaintext = json.encodeToString(packagePayload).encodeToByteArray(),
+            associatedData = recoveryAssociatedData(recoveryId, session.vaultId),
+        )
+
+        api.createRecovery(
+            session = session,
+            request = CreateRecoveryRequest(
+                recoveryId = recoveryId,
+                recoverySecretHash = verificationHash.toBase64Url(),
+                keyPackageCiphertext = ciphertext.toBase64Url(),
+                keyPackageNonce = nonce.toBase64Url(),
+                keyEpoch = session.keyEpoch,
+            ),
+        )
+
+        return RecoveryCredential(
+            recoveryId = recoveryId,
+            code = "AWREC1:" + recoveryId + ":" + secret.hexUpper(),
+            createdAt = Clock.System.now().toString(),
+        )
+    }
+
+    suspend fun claimRecovery(code: String): VaultSession {
+        val parts = code.trim().split(':')
+        require(parts.size == 3 && parts[0].equals("AWREC1", ignoreCase = true)) {
+            "Ongeldige herstelcode"
+        }
+        val recoveryId = parts[1].lowercase()
+        require(runCatching { Uuid.parse(recoveryId) }.isSuccess) { "Ongeldige herstelcode" }
+        val secret = parts[2].fromHexFlexible()
+        require(secret.size == 32) { "Ongeldige herstelcode" }
+
+        val signing = crypto.generateEd25519KeyPair()
+        val encryption = crypto.generateX25519KeyPair()
+        val deviceId = Uuid.random().toString()
+
+        val response = api.claimRecovery(
+            ClaimRecoveryRequest(
+                recoveryId = recoveryId,
+                recoverySecret = secret.toBase64Url(),
+                deviceId = deviceId,
+                authPublicKey = signing.publicKey.toBase64Url(),
+                encryptionPublicKey = encryption.publicKey.toBase64Url(),
+            )
+        )
+
+        val wrappingKey = crypto.sha256(
+            "AW-RECOVERY-WRAP-V1\n".encodeToByteArray() + secret
+        )
+        val plaintext = crypto.xChaCha20Poly1305Decrypt(
+            key = wrappingKey,
+            nonce24 = response.keyPackageNonce.fromBase64Url(),
+            ciphertext = response.keyPackageCiphertext.fromBase64Url(),
+            associatedData = recoveryAssociatedData(response.recoveryId, response.vaultId),
+        )
+        val keyPackage = json.decodeFromString<RecoveryKeyPackage>(plaintext.decodeToString())
+        check(keyPackage.vaultId == response.vaultId) { "Herstelbackup hoort bij een ander profiel" }
+        check(keyPackage.keyEpoch == response.keyEpoch) { "Herstelbackup gebruikt een onjuiste key epoch" }
+
+        val session = VaultSession(
+            vaultId = response.vaultId,
+            deviceId = response.deviceId,
+            label = keyPackage.label.ifBlank { "Herstelde Activiteitenweger" },
+            access = response.access,
+            owner = response.owner,
+            keyEpoch = response.keyEpoch,
+            authPrivateKey = signing.privateKey.toBase64Url(),
+            authPublicKey = signing.publicKey.toBase64Url(),
+            encryptionPrivateKey = encryption.privateKey.toBase64Url(),
+            encryptionPublicKey = encryption.publicKey.toBase64Url(),
+            vaultKey = keyPackage.vaultKey,
+            cursor = 0,
+        )
+        sessions.save(session)
+        return session
+    }
+
+    suspend fun revokeRecoveryCredential(session: VaultSession, recoveryId: String) {
+        check(session.owner) { "Alleen de eigenaar kan een herstelcode intrekken" }
+        api.revokeRecovery(session, recoveryId)
     }
 
     suspend fun devices(session: VaultSession): List<DeviceInfo> {
@@ -1070,12 +1177,24 @@ class VaultRepository(
     private fun deviceLabelAssociatedData(vaultId: String, deviceId: String): ByteArray =
         ("AW-DEVICE-LABEL-V1\n" + vaultId + "\n" + deviceId).encodeToByteArray()
 
+    private fun recoveryAssociatedData(recoveryId: String, vaultId: String): ByteArray =
+        ("AW-RECOVERY-V1\n" + recoveryId + "\n" + vaultId).encodeToByteArray()
+
     private fun pairingAssociatedData(
         inviteId: String,
         vaultId: String,
         access: AccessMode,
     ): ByteArray =
         ("AW-PAIRING-V1\n" + inviteId + "\n" + vaultId + "\n" + access.name).encodeToByteArray()
+
+    @Serializable
+    private data class RecoveryKeyPackage(
+        val schemaVersion: Int = 1,
+        val vaultId: String,
+        val vaultKey: String,
+        val label: String,
+        val keyEpoch: Int,
+    )
 
     @Serializable
     private data class PairingKeyPackage(
