@@ -595,6 +595,8 @@ class VaultRepository(
         categories: List<ActivityCategory> = session.categories,
         activityPresets: List<ActivityPreset> = session.activityPresets,
         dailyPointTarget: Double = session.dailyPointTarget,
+        dailyPointOrangeAbove: Double = session.dailyPointOrangeAbove,
+        dailyPointRedAbove: Double = session.dailyPointRedAbove,
     ): VaultSession =
         queueProfileSettingsMutation(
             session = session,
@@ -602,6 +604,8 @@ class VaultRepository(
             categories = categories,
             activityPresets = activityPresets,
             dailyPointTarget = dailyPointTarget,
+            dailyPointOrangeAbove = dailyPointOrangeAbove,
+            dailyPointRedAbove = dailyPointRedAbove,
         )
 
     suspend fun deleteVault(session: VaultSession) {
@@ -617,11 +621,19 @@ class VaultRepository(
         categories: List<ActivityCategory>,
         activityPresets: List<ActivityPreset>,
         dailyPointTarget: Double,
+        dailyPointOrangeAbove: Double,
+        dailyPointRedAbove: Double,
     ): VaultSession {
         check(session.access == AccessMode.RW) { "Deze koppeling is alleen-lezen" }
         require(categories.isNotEmpty()) { "Er moet minimaal één categorie zijn" }
         require(dailyPointTarget.isFinite() && dailyPointTarget >= 0.0) {
             "Het streefpuntenaantal moet nul of hoger zijn"
+        }
+        require(dailyPointOrangeAbove.isFinite() && dailyPointOrangeAbove >= 0.0) {
+            "De oranje grens moet nul of hoger zijn"
+        }
+        require(dailyPointRedAbove.isFinite() && dailyPointRedAbove >= dailyPointOrangeAbove) {
+            "De rode grens moet gelijk aan of hoger zijn dan de oranje grens"
         }
 
         val categoryIds = categories.mapTo(mutableSetOf()) { it.id }
@@ -634,6 +646,8 @@ class VaultRepository(
             categories = categories,
             activityPresets = activityPresets,
             dailyPointTarget = dailyPointTarget,
+            dailyPointOrangeAbove = dailyPointOrangeAbove,
+            dailyPointRedAbove = dailyPointRedAbove,
         )
         val pending = queueEncryptedMutation(
             session = session,
@@ -648,6 +662,8 @@ class VaultRepository(
             categories = payload.categories,
             activityPresets = payload.activityPresets,
             dailyPointTarget = payload.dailyPointTarget,
+            dailyPointOrangeAbove = payload.dailyPointOrangeAbove,
+            dailyPointRedAbove = payload.dailyPointRedAbove,
             settingsRevision = pending.revision,
         )
         sessions.save(updated)
@@ -947,6 +963,8 @@ class VaultRepository(
             categories = categories,
             activityPresets = payload.activityPresets.filter { it.categoryId in categoryIds },
             dailyPointTarget = payload.dailyPointTarget,
+            dailyPointOrangeAbove = payload.dailyPointOrangeAbove,
+            dailyPointRedAbove = payload.dailyPointRedAbove,
             settingsRevision = revision,
         )
     }
