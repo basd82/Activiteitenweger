@@ -1426,6 +1426,8 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var addingPreset by remember { mutableStateOf(false) }
     var editingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
     var deletingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
+    var showSecuritySetup by remember { mutableStateOf(false) }
+    var showSecurityDisable by remember { mutableStateOf(false) }
     var targetPointsInput by remember(state.selectedVaultId, state.selectedSession?.dailyPointTarget) {
         mutableStateOf(
             (state.selectedSession?.dailyPointTarget ?: 17.5)
@@ -1494,6 +1496,47 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         Text("Licentie: GNU General Public License v3.0")
         Text("Broncode: github.com/basd82/Activiteitenweger")
         TextButton(onClick = { showLicense = true }) { Text("Licentie-informatie") }
+        Spacer(Modifier.height(20.dp))
+        Text("Beveiliging", style = MaterialTheme.typography.titleMedium)
+        if (state.appLockEnabled) {
+            Text("App-vergrendeling staat aan.")
+            Text(
+                "Automatisch vergrendelen: " + formatLockTimeout(state.lockAfterSeconds),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                if (state.biometricsEnabled && state.biometricName != null) {
+                    "Biometrie: " + state.biometricName
+                } else {
+                    "Biometrie: uit"
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { showSecuritySetup = true },
+                    enabled = !state.busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Wijzigen") }
+                OutlinedButton(
+                    onClick = { showSecurityDisable = true },
+                    enabled = !state.busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Uitschakelen") }
+            }
+        } else {
+            Text(
+                "Beveilig de app lokaal met een PIN en optioneel " + (state.biometricName ?: "biometrie") + ".",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { showSecuritySetup = true },
+                enabled = !state.busy,
+            ) { Text("App-beveiliging instellen") }
+        }
+
         Spacer(Modifier.height(12.dp))
         Button(onClick = controller::syncCurrent, enabled = !state.busy) { Text("Nu synchroniseren") }
         Spacer(Modifier.height(20.dp))
