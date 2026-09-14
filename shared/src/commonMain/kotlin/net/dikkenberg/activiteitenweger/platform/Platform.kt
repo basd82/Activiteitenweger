@@ -8,3 +8,6 @@ import io.ktor.client.HttpClient
 expect fun createPlatformHttpClient(): HttpClient
 expect fun appVersionName(): String
 expect fun appBuildNumber(): String
+
+expect fun copyTextToClipboard(label: String, text: String)
+expect fun shareText(text: String, chooserTitle: String)
