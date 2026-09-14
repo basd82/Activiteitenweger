@@ -1,6 +1,6 @@
 TEAM_ID=47QSP2CZKU
 BUNDLE_ID=net.dikkenberg.activiteitenweger
 APP_NAME=Activiteitenweger
-APP_VERSION=0.3.0
-APP_BUILD=13
+APP_VERSION=0.3.1
+APP_BUILD=14
 EXCLUDED_ARCHS[sdk=iphonesimulator*]=x86_64
