@@ -16,6 +16,9 @@ fun initAndroidBiometricActivity(activity: FragmentActivity) {
     biometricActivity = activity
 }
 
+internal fun requireAndroidActivity(): FragmentActivity =
+    checkNotNull(biometricActivity) { "Android activity is not initialized" }
+
 actual fun biometricDisplayName(): String? {
     val activity = biometricActivity ?: return null
     val manager = BiometricManager.from(activity)
