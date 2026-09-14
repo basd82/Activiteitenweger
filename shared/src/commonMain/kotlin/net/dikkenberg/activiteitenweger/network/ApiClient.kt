@@ -95,6 +95,20 @@ class ApiClient(
     suspend fun claimPairing(request: ClaimPairingRequest): ClaimPairingResponse =
         publicJson(HttpMethod.Post, "/api/v1/pairing/claim", request)
 
+    suspend fun createRecovery(
+        session: VaultSession,
+        request: CreateRecoveryRequest,
+    ): CreateRecoveryResponse {
+        val raw = json.encodeToString(request)
+        return signedJson(HttpMethod.Post, "/api/v1/recovery", raw, session)
+    }
+
+    suspend fun claimRecovery(request: ClaimRecoveryRequest): ClaimRecoveryResponse =
+        publicJson(HttpMethod.Post, "/api/v1/recovery/claim", request)
+
+    suspend fun revokeRecovery(session: VaultSession, recoveryId: String): StatusResponse =
+        signedJson(HttpMethod.Delete, "/api/v1/recovery/$recoveryId", "", session)
+
     suspend fun revokePairingInvite(session: VaultSession, inviteId: String): RevokeResponse =
         signedJson(HttpMethod.Delete, "/api/v1/pairing/invites/$inviteId", "", session)
 
