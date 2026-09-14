@@ -461,6 +461,9 @@ class VaultRepository(
                 label = current.label,
                 categories = current.categories,
                 activityPresets = current.activityPresets,
+                dailyPointTarget = current.dailyPointTarget,
+                dailyPointOrangeAbove = current.dailyPointOrangeAbove,
+                dailyPointRedAbove = current.dailyPointRedAbove,
             )
             state = localSyncStore.load(current.vaultId)
         }
