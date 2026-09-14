@@ -304,6 +304,12 @@ class VaultRepository(
         api.revokeRecovery(session, recoveryId)
     }
 
+    suspend fun recoveryStatus(session: VaultSession): Pair<String?, String?> {
+        check(session.owner) { "Alleen de eigenaar kan de herstelstatus bekijken" }
+        val recovery = api.recoveryStatus(session).recovery
+        return recovery?.recoveryId to recovery?.createdAt
+    }
+
     suspend fun devices(session: VaultSession): List<DeviceInfo> {
         val raw = api.devices(session).devices.sortedBy { it.createdAt }
         val mapped = raw.map { response ->
