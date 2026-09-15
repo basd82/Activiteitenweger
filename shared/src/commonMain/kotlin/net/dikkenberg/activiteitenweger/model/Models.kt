@@ -173,6 +173,12 @@ data class DeviceInfo(
 )
 
 
+data class RecoveryCredential(
+    val recoveryId: String,
+    val code: String,
+    val createdAt: String,
+)
+
 data class PairingInvitation(
     val inviteId: String,
     val code: String,

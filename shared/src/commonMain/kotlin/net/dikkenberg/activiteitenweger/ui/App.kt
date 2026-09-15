@@ -7,11 +7,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -31,6 +34,7 @@ import net.dikkenberg.activiteitenweger.platform.CameraPermissionGate
 import net.dikkenberg.activiteitenweger.platform.appBuildNumber
 import net.dikkenberg.activiteitenweger.platform.appVersionName
 import net.dikkenberg.activiteitenweger.platform.copyTextToClipboard
+import net.dikkenberg.activiteitenweger.platform.passwordManagerSaveAvailable
 import net.dikkenberg.activiteitenweger.platform.shareText
 import kotlin.math.abs
 import org.ncgroup.kscan.BarcodeFormat
@@ -68,11 +72,13 @@ fun ActiviteitenwegerApp(controller: AppController = remember { AppController() 
                 !state.initialized -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
+                state.appLocked -> AppLockScreen(state, controller)
                 state.sessions.isEmpty() -> WelcomeScreen(
                     busy = state.busy,
                     error = state.error,
                     onCreate = controller::createVault,
                     onJoin = controller::claimPairing,
+                    onRecover = controller::claimRecovery,
                 )
                 else -> AdaptiveShell(
                     destination = destination,
@@ -166,10 +172,12 @@ private fun WelcomeScreen(
     error: String?,
     onCreate: (String) -> Unit,
     onJoin: (String) -> Unit,
+    onRecover: (String) -> Unit,
 ) {
     var label by remember { mutableStateOf("Mijn Activiteitenweger") }
     var showLicense by remember { mutableStateOf(false) }
     var showJoin by remember { mutableStateOf(false) }
+    var showRecovery by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().padding(24.dp),
@@ -200,6 +208,14 @@ private fun WelcomeScreen(
         ) {
             Text("Bestaand profiel koppelen")
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { showRecovery = true },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Profiel herstellen met herstelcode")
+        }
         error?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = MaterialTheme.colorScheme.error)
@@ -226,8 +242,67 @@ private fun WelcomeScreen(
         )
     }
 
+    if (showRecovery) {
+        RecoveryCodeEntryDialog(
+            onDismiss = { showRecovery = false },
+            onRecover = {
+                showRecovery = false
+                onRecover(it)
+            },
+        )
+    }
+
     if (showLicense) {
         LicenseDialog(onDismiss = { showLicense = false })
+    }
+}
+
+@Composable
+private fun AppLockScreen(state: AppUiState, controller: AppController) {
+    var pin by remember { mutableStateOf("") }
+
+    Column(
+        Modifier.fillMaxSize().padding(32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Activiteitenweger", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(8.dp))
+        Text("Deze app is vergrendeld.")
+        Spacer(Modifier.height(20.dp))
+        OutlinedTextField(
+            value = pin,
+            onValueChange = { value -> pin = value.filter(Char::isDigit).take(12) },
+            label = { Text("PIN") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = {
+                controller.unlockWithPin(pin)
+                pin = ""
+            },
+            enabled = pin.length >= 4,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Ontgrendelen")
+        }
+        if (state.biometricsEnabled && state.biometricName != null) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = controller::unlockWithBiometrics,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Ontgrendelen met ${state.biometricName}")
+            }
+        }
+        state.error?.let {
+            Spacer(Modifier.height(8.dp))
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
     }
 }
 
@@ -1072,6 +1147,58 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
             }
         }
 
+        if (session.owner) {
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Herstelbackup", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Met een herstelcode kun je dit profiel terugzetten als je alle gekoppelde apparaten kwijtraakt.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    val activeDeviceCount = state.devices.count { it.status == "ACTIVE" }
+                    if (activeDeviceCount <= 1 && state.recoveryId == null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Let op: dit is nu je enige actieve apparaat. Zonder herstelbackup kan verlies van dit apparaat betekenen dat je versleutelde gegevens niet meer toegankelijk zijn.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (state.recoveryId == null) {
+                        Button(
+                            onClick = controller::createRecoveryCredential,
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Herstelbackup maken")
+                        }
+                    } else {
+                        Text(
+                            "Herstelbackup actief" +
+                                (state.recoveryCreatedAt?.let { " · gemaakt " + formatLocalDateTime(it) } ?: ""),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = controller::createRecoveryCredential,
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Nieuwe herstelbackup maken")
+                        }
+                        TextButton(
+                            onClick = controller::revokeRecoveryCredential,
+                            enabled = !state.busy,
+                        ) {
+                            Text("Herstelbackup intrekken")
+                        }
+                    }
+                }
+            }
+        }
+
         OutlinedButton(
             onClick = { showJoin = true },
             enabled = !state.busy,
@@ -1207,6 +1334,14 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
         Text("Vault: ${session.vaultId}", style = MaterialTheme.typography.bodySmall)
     }
 
+    state.recoveryCredential?.let { recovery ->
+        RecoveryCredentialDialog(
+            recovery = recovery,
+            onClose = controller::clearRecoveryCredential,
+            onSaveToPasswordManager = controller::saveRecoveryCredentialToPasswordManager,
+        )
+    }
+
     state.pairingInvitation?.let { invitation ->
         PairingInvitationDialog(
             invitation = invitation,
@@ -1283,6 +1418,132 @@ private fun ShareScreen(state: AppUiState, controller: AppController) {
 }
 
 @Composable
+private fun AppSecuritySetupDialog(
+    biometricName: String?,
+    initialBiometrics: Boolean,
+    initialTimeout: Long,
+    onDismiss: () -> Unit,
+    onSave: (String, Boolean, Long) -> Unit,
+) {
+    var pin by remember { mutableStateOf("") }
+    var confirmPin by remember { mutableStateOf("") }
+    var useBiometrics by remember(initialBiometrics) {
+        mutableStateOf(initialBiometrics && biometricName != null)
+    }
+    var timeout by remember(initialTimeout) { mutableStateOf(initialTimeout) }
+    val pinValid = pin.length in 4..12 && pin.all(Char::isDigit) && pin == confirmPin
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("App-beveiliging") },
+        text = {
+            Column {
+                Text("Kies een PIN van 4 tot 12 cijfers. Deze PIN blijft alleen op dit apparaat.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter(Char::isDigit).take(12) },
+                    label = { Text("Nieuwe PIN") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = confirmPin,
+                    onValueChange = { confirmPin = it.filter(Char::isDigit).take(12) },
+                    label = { Text("PIN herhalen") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (confirmPin.isNotEmpty() && pin != confirmPin) {
+                    Text("De PIN-codes zijn niet gelijk.", color = MaterialTheme.colorScheme.error)
+                }
+                if (biometricName != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = useBiometrics,
+                            onCheckedChange = { useBiometrics = it },
+                        )
+                        Text("Ook ontgrendelen met " + biometricName)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Automatisch opnieuw vergrendelen", style = MaterialTheme.typography.labelLarge)
+                listOf(
+                    0L to "Direct",
+                    60L to "Na 1 minuut",
+                    300L to "Na 5 minuten",
+                    900L to "Na 15 minuten",
+                ).forEach { pair ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = timeout == pair.first,
+                            onClick = { timeout = pair.first },
+                        )
+                        Text(pair.second)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(pin, useBiometrics, timeout) },
+                enabled = pinValid,
+            ) {
+                Text("Opslaan")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
+}
+
+@Composable
+private fun AppSecurityDisableDialog(
+    onDismiss: () -> Unit,
+    onDisable: (String) -> Unit,
+) {
+    var pin by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("App-beveiliging uitschakelen?") },
+        text = {
+            Column {
+                Text("Voer je huidige PIN in om de lokale app-vergrendeling uit te schakelen.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter(Char::isDigit).take(12) },
+                    label = { Text("Huidige PIN") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onDisable(pin) },
+                enabled = pin.length >= 4,
+            ) {
+                Text("Uitschakelen")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
+}
+
+@Composable
 private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var confirmDelete by remember { mutableStateOf(false) }
     var showLicense by remember { mutableStateOf(false) }
@@ -1293,6 +1554,8 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     var addingPreset by remember { mutableStateOf(false) }
     var editingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
     var deletingPreset by remember { mutableStateOf<ActivityPreset?>(null) }
+    var showSecuritySetup by remember { mutableStateOf(false) }
+    var showSecurityDisable by remember { mutableStateOf(false) }
     var targetPointsInput by remember(state.selectedVaultId, state.selectedSession?.dailyPointTarget) {
         mutableStateOf(
             (state.selectedSession?.dailyPointTarget ?: 17.5)
@@ -1361,6 +1624,47 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
         Text("Licentie: GNU General Public License v3.0")
         Text("Broncode: github.com/basd82/Activiteitenweger")
         TextButton(onClick = { showLicense = true }) { Text("Licentie-informatie") }
+        Spacer(Modifier.height(20.dp))
+        Text("Beveiliging", style = MaterialTheme.typography.titleMedium)
+        if (state.appLockEnabled) {
+            Text("App-vergrendeling staat aan.")
+            Text(
+                "Automatisch vergrendelen: " + formatLockTimeout(state.lockAfterSeconds),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                if (state.biometricsEnabled && state.biometricName != null) {
+                    "Biometrie: " + state.biometricName
+                } else {
+                    "Biometrie: uit"
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { showSecuritySetup = true },
+                    enabled = !state.busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Wijzigen") }
+                OutlinedButton(
+                    onClick = { showSecurityDisable = true },
+                    enabled = !state.busy,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Uitschakelen") }
+            }
+        } else {
+            Text(
+                "Beveilig de app lokaal met een PIN en optioneel " + (state.biometricName ?: "biometrie") + ".",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { showSecuritySetup = true },
+                enabled = !state.busy,
+            ) { Text("App-beveiliging instellen") }
+        }
+
         Spacer(Modifier.height(12.dp))
         Button(onClick = controller::syncCurrent, enabled = !state.busy) { Text("Nu synchroniseren") }
         Spacer(Modifier.height(20.dp))
@@ -1588,6 +1892,29 @@ private fun SettingsScreen(state: AppUiState, controller: AppController) {
     }
     if (showLicense) {
         LicenseDialog(onDismiss = { showLicense = false })
+    }
+
+    if (showSecuritySetup) {
+        AppSecuritySetupDialog(
+            biometricName = state.biometricName,
+            initialBiometrics = state.biometricsEnabled,
+            initialTimeout = state.lockAfterSeconds,
+            onDismiss = { showSecuritySetup = false },
+            onSave = { pin, biometrics, timeout ->
+                showSecuritySetup = false
+                controller.configureAppLock(pin, biometrics, timeout)
+            },
+        )
+    }
+
+    if (showSecurityDisable) {
+        AppSecurityDisableDialog(
+            onDismiss = { showSecurityDisable = false },
+            onDisable = { pin ->
+                showSecurityDisable = false
+                controller.disableAppLock(pin)
+            },
+        )
     }
 
     if (addingCategory) {
@@ -2138,6 +2465,118 @@ private fun PairingInvitationDialog(
 }
 
 @Composable
+private fun RecoveryCredentialDialog(
+    recovery: net.dikkenberg.activiteitenweger.model.RecoveryCredential,
+    onClose: () -> Unit,
+    onSaveToPasswordManager: () -> Unit,
+) {
+    var copied by remember(recovery.code) { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Herstelbackup bewaren") },
+        text = {
+            Column {
+                Text(
+                    "Bewaar deze herstelcode buiten dit apparaat. De server bewaart de geheime code niet en deze code wordt maar één keer getoond.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedCard(Modifier.fillMaxWidth()) {
+                    Text(
+                        recovery.code,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            copyTextToClipboard("Activiteitenweger herstelcode", recovery.code)
+                            copied = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(if (copied) "Gekopieerd" else "Kopiëren")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            shareText(
+                                text = recovery.code,
+                                chooserTitle = "Herstelcode bewaren of delen",
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Delen")
+                    }
+                }
+                if (passwordManagerSaveAvailable()) {
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = onSaveToPasswordManager,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Opslaan in wachtwoordmanager")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Wie deze code bezit kan het eigenaarschap van dit profiel herstellen. Bewaar hem daarom alleen op een plek die je vertrouwt, bijvoorbeeld een wachtwoordmanager.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onClose) { Text("Ik heb de code veilig bewaard") }
+        },
+    )
+}
+
+@Composable
+private fun RecoveryCodeEntryDialog(
+    onDismiss: () -> Unit,
+    onRecover: (String) -> Unit,
+) {
+    var code by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Profiel herstellen") },
+        text = {
+            Column {
+                Text("Plak de herstelcode die je eerder buiten dit apparaat hebt bewaard.")
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.trim() },
+                    label = { Text("Herstelcode") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Na succesvol herstel wordt deze herstelcode ongeldig. Maak daarna vanuit het herstelde profiel een nieuwe herstelbackup.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onRecover(code) },
+                enabled = code.startsWith("AWREC1:", ignoreCase = true),
+            ) {
+                Text("Herstellen")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Annuleer") }
+        },
+    )
+}
+
+@Composable
 private fun JoinPairingDialog(
     onDismiss: () -> Unit,
     onJoin: (String) -> Unit,
@@ -2356,6 +2795,15 @@ private fun formatLocalDate(value: String): String =
         .date
         .toString()
 
+private fun formatLocalDateTime(value: String): String {
+    val dateTime = kotlin.time.Instant.parse(value)
+        .toLocalDateTime(TimeZone.currentSystemDefault())
+    return dateTime.dayOfMonth.toString().padStart(2, '0') + "-" +
+        dateTime.monthNumber.toString().padStart(2, '0') + "-" + dateTime.year + " " +
+        dateTime.hour.toString().padStart(2, '0') + ":" +
+        dateTime.minute.toString().padStart(2, '0')
+}
+
 private fun formatLocalTime(value: String): String {
     val time = kotlin.time.Instant.parse(value)
         .toLocalDateTime(TimeZone.currentSystemDefault())
@@ -2369,6 +2817,15 @@ private fun formatDuration(seconds: Long): String {
     val s = seconds % 60
     return if (h > 0) "${h}u ${m.toString().padStart(2, '0')}m" else "${m}m ${s.toString().padStart(2, '0')}s"
 }
+
+private fun formatLockTimeout(seconds: Long): String =
+    when (seconds) {
+        0L -> "direct"
+        60L -> "na 1 minuut"
+        300L -> "na 5 minuten"
+        900L -> "na 15 minuten"
+        else -> "na " + seconds + " seconden"
+    }
 
 private fun formatPoints(value: Double): String {
     val rounded = kotlin.math.round(value * 10.0) / 10.0
